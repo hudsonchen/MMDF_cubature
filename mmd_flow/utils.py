@@ -64,7 +64,7 @@ def save_animation_2d(args, trajectory, distribution, rate, save_path):
     y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
     X, Y = jnp.meshgrid(x_vals, y_vals)
     grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
-    logpdf = distribution.logpdf(grid).reshape(resolution, resolution)
+    logpdf = jnp.log(distribution.pdf(grid).reshape(resolution, resolution))
     contour = animate_ax.contourf(X, Y, logpdf, levels=20, cmap='viridis')
     plt.colorbar(contour, ax=animate_ax, label="Log PDF")
 
@@ -81,3 +81,46 @@ def save_animation_2d(args, trajectory, distribution, rate, save_path):
     ani_kale.save(f'{save_path}/animation.mp4',
                    writer='ffmpeg', fps=20)
     return    
+
+
+def exact_integral(args, distribution, rate, trajectory):
+    # Verify that \int \nabla_{x_i} k(x_i, y) d \mu(y) = \sum_{j=1}^N \nabla_{x_i} k(x_i, y_j)
+    # Only works for d dimensional unit Gaussian distribution
+    ell = args.bandwidth
+    dim = distribution.means.shape[1]
+    diff_exact_list = []
+
+    # This is the integral with exact approximation
+    for i in range(0, trajectory.shape[0], rate):
+        x = trajectory[i, 0, :]
+        # Compute the closed-form solution using the provided formula
+        factor1 = (1/2 / (1/2 + ell**-2))**(dim/2)
+        factor2 = - (2 * ell**-2) / (1 + 2 * ell**-2)
+        exp_term = jnp.exp(- (ell**-2) / (1 + 2 * ell**-2) * jnp.linalg.norm(x)**2)
+        closed_form = factor1 * factor2 * exp_term * x
+
+        # Compute the integral using numerical integration
+        y = trajectory[i, :, :]
+        part_1 = jnp.exp(- ell**-2 * jnp.linalg.norm(x[None, :] - y))
+        part_2 = 2 * ell**-2 * (x[None, :] - y)
+        empirical_form = part_1 * part_2
+
+        diff_exact = jnp.linalg.norm(closed_form - empirical_form)
+        diff_exact_list.append(diff_exact)
+
+    # This is the integral that does not
+    diff_inexact_list = []
+    for i in range(0, trajectory.shape[0], rate):
+        closed_form = 0
+        empirical = trajectory[i, :, :].mean(0)
+        diff_inexact = jnp.linalg.norm(closed_form - empirical)
+        diff_inexact_list.append(diff_inexact)
+
+    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+    axs[0].plot(diff_exact_list, label='Exact')
+    axs[0].set_xlabel('Iteration')
+    axs[0].set_ylabel(r'$|I - \hat{I}|$')
+    axs[0].plot(diff_inexact_list, label='Inexact')
+    axs[0].legend()
+    plt.savefig(f'{args.save_path}/integral_error_exact.png')
+    return

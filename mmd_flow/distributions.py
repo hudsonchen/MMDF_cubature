@@ -57,7 +57,7 @@ class Distribution:
         samples = means + jax.random.multivariate_normal(subkey, jnp.zeros(self.d), covs, shape=(sample_size,))
         return samples
     
-    def logpdf(self, Y):
+    def pdf(self, Y):
         """
         Compute the probability density function of the mixture of Gaussians.
 
@@ -67,7 +67,7 @@ class Distribution:
         Returns:
         - pdf: (n,) array of PDF values.
         """
-        logpdf = jnp.zeros(len(Y))
+        pdf = jnp.zeros(len(Y))
         for i in range(self.k):
-            logpdf += self.weights[i] * jax.scipy.stats.multivariate_normal.logpdf(Y, self.means[i], self.covariances[i])
-        return logpdf
+            pdf += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(Y, self.means[i], self.covariances[i])
+        return pdf

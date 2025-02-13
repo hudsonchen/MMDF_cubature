@@ -25,7 +25,9 @@ def gradient_flow(
 
         first_variation = divergence.get_first_variation(Y)
         velocity_field = jax.vmap(grad(first_variation))
-        updates, new_opt_state = optimizer.update(velocity_field(Y), opt_state)
+        u = jax.random.normal(rng_key, shape=Y.shape)
+        beta = args.inject_noise_scale * jnp.sqrt(1 / (i / 100 + 1))
+        updates, new_opt_state = optimizer.update(velocity_field(Y + beta * u), opt_state)
         Y_next = optax.apply_updates(Y, updates)
 
         rng_key, _ = random.split(rng_key)

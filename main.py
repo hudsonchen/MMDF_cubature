@@ -58,16 +58,27 @@ def main(args):
     N = args.source_particle_num
     d = 2
     kernel = gaussian_kernel(args.bandwidth)
-    distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], weights=None)
-    Y = jax.random.normal(rng_key, shape=(N, d)) + 0.5 # initial particles
+    if args.dataset == 'gaussian':
+        distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], weights=None)
+        Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
+    elif args.dataset == 'MoG':
+        covariances = jnp.load('data/mog_covs.npy')
+        means = jnp.load('data/mog_means.npy')
+        k = 20
+        weights = jnp.ones(k) / k
+        distribution = Distribution(kernel=kernel, means=means, covariances=covariances, weights=weights)
+        Y = jax.random.normal(rng_key, shape=(N, d)) + 0.5 # initial particles
+    else:
+        raise ValueError('Dataset not recognized!')
     divergence = mmd_fixed_target(args, kernel, distribution)
     info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
     rate = 100
     mmd_flow.utils.evaluate(args, trajectory, rate, rng_key)
     mmd_flow.utils.save_animation_2d(args, trajectory, distribution, rate, args.save_path)
+    if args.dataset == 'gaussian':
+        mmd_flow.utils.exact_integral(args, distribution, rate, trajectory)
     return
     
-
 
 if __name__ == '__main__':
     args = get_config()
