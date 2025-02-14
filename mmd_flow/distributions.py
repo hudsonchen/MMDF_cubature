@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax
 
 class Distribution:
-    def __init__(self, kernel, means, covariances, weights=None):
+    def __init__(self, kernel, means, covariances, integrand_name, weights=None):
         """
         A class that supports Gaussian and Mixture of Gaussians distributions.
 
@@ -16,7 +16,14 @@ class Distribution:
         self.means = jnp.atleast_2d(means)  # Ensure shape (k, d)
         self.covariances = jnp.atleast_3d(covariances)  # Ensure shape (k, d, d)
         self.k, self.d = self.means.shape
-
+        self.integrand_name = integrand_name
+        if integrand_name == 'square':
+            self.integrand = lambda x: (x**2).sum(1)
+        elif integrand_name == 'neg_exp':
+            self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
+        else:
+            raise ValueError('Function not recognized!')
+        
         if weights is None:
             self.weights = jnp.array([1.0])  # Single Gaussian case
         else:
@@ -26,13 +33,13 @@ class Distribution:
 
     def mean_embedding(self, Y):
         if self.k == 1:
-            KME = self.kernel.mean_embedding(Y, self.means[0], self.covariances[0])
-            return KME
+            kme = self.kernel.mean_embedding(Y, self.means[0], self.covariances[0])
+            return kme
         else:
-            KME = jnp.zeros(len(Y))
+            kme = jnp.zeros(len(Y))
             for i in range(self.k):
-                KME += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
-        return KME
+                kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
+        return kme
     
     def sample(self, sample_size, rng_key):
         """
@@ -71,3 +78,19 @@ class Distribution:
         for i in range(self.k):
             pdf += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(Y, self.means[i], self.covariances[i])
         return pdf
+    
+    def integral(self):
+        if self.integrand_name == 'square':
+            integral = 0
+            for i in range(self.k):
+                integral += self.weights[i] * (jnp.trace(self.covariances[i]) + jnp.linalg.norm(self.means[i])**2)
+        elif self.integrand_name == 'neg_exp':
+            integral = 0
+            for i in range(self.k):
+                cov_inv = jnp.linalg.inv(self.covariances[i])
+                temp = jnp.exp(0.5 * (self.means[i].T @ cov_inv @ jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d)) @ cov_inv @ self.means[i]))
+                temp *= jnp.exp(-0.5 * self.means[i].T @ cov_inv @ self.means[i])
+                temp * jnp.sqrt(jnp.linalg.det(2 * self.covariances[i] + jnp.eye(self.d)))
+                cov_new = jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d))
+                integral += self.weights[i] * temp * jnp.sqrt(jnp.linalg.det(cov_inv)) * jnp.sqrt(jnp.linalg.det(cov_new))
+        return integral

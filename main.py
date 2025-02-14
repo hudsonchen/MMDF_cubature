@@ -35,8 +35,9 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
     parser.add_argument('--step_num', type=int, default=10000)
-    parser.add_argument('--source_particle_num', type=int, default=20)
+    parser.add_argument('--particle_num', type=int, default=20)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
+    parser.add_argument('--integrand', type=str, default='neg_exp')
     args = parser.parse_args()  
     return args
 
@@ -45,36 +46,37 @@ def create_dir(args):
         args.seed = int(time.time())
     args.save_path += f"{args.dataset}_dataset/{args.kernel}_kernel/mmd_flow/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
-    args.save_path += f"__source_particle_num_{args.source_particle_num}__inject_noise_scale_{args.inject_noise_scale}"
+    args.save_path += f"__particle_num_{args.particle_num}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
     with open(f'{args.save_path}/configs', 'wb') as handle:
         pickle.dump(vars(args), handle, protocol=pickle.HIGHEST_PROTOCOL)
     return args
 
-
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
-    N = args.source_particle_num
+    N = args.particle_num
     d = 2
     kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
-        distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], weights=None)
+        distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
+                                    integrand_name=args.integrand, weights=None)
         Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
-    elif args.dataset == 'MoG':
+    elif args.dataset == 'mog':
         covariances = jnp.load('data/mog_covs.npy')
         means = jnp.load('data/mog_means.npy')
         k = 20
         weights = jnp.ones(k) / k
-        distribution = Distribution(kernel=kernel, means=means, covariances=covariances, weights=weights)
+        distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
         Y = jax.random.normal(rng_key, shape=(N, d)) + 0.5 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
+    
     divergence = mmd_fixed_target(args, kernel, distribution)
     info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
     rate = 100
-    mmd_flow.utils.evaluate(args, trajectory, rate, rng_key)
-    mmd_flow.utils.save_animation_2d(args, trajectory, distribution, rate, args.save_path)
+    mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+    mmd_flow.utils.evaluate_integral(args, distribution, trajectory)
     if args.dataset == 'gaussian':
         mmd_flow.utils.exact_integral(args, distribution, rate, trajectory)
     return

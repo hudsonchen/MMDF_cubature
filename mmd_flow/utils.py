@@ -22,17 +22,12 @@ plt.rc('xtick', labelsize=14, direction='in')
 plt.rc('ytick', labelsize=14, direction='in')
 plt.rc('figure', figsize=(6, 4))
 
-def evaluate(args, trajectory, rate, rng_key):
-    # Save the trajectory
-    eval_freq = rate
-    jnp.save(f'{args.save_path}/Ys.npy', trajectory[::eval_freq, :, :])
 
+def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, save_path):
     T = trajectory.shape[0]
     Y = trajectory[0, :, :]
-    kernel = gaussian_kernel(args.bandwidth)
-    distribution = Distribution(kernel=kernel, means=jnp.array([0.0]), covariances=jnp.array([[1.0]]), weights=None)
     mmd_divergence = mmd_fixed_target(args, kernel, distribution)
-    mmd_distance = jnp.sqrt(jax.vmap(mmd_divergence)(trajectory[::eval_freq, :, :], jax.random.split(rng_key, trajectory[::eval_freq, :, :].shape[0])))
+    mmd_distance = jnp.sqrt(jax.vmap(mmd_divergence)(trajectory[::rate, :, :], jax.random.split(rng_key, trajectory[::rate, :, :].shape[0])))
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 4))
     axs[0].plot(mmd_distance, label='mmd')
@@ -40,9 +35,8 @@ def evaluate(args, trajectory, rate, rng_key):
     axs[0].set_xlabel('Iteration')
     axs[0].set_ylabel('MMD distance')
     plt.savefig(f'{args.save_path}/distance.png')
-    return 
+    jnp.save(f'{args.save_path}/Ys.npy', trajectory[::rate, :, :])
 
-def save_animation_2d(args, trajectory, distribution, rate, save_path):
     num_timesteps = trajectory.shape[0]
     num_frames = max(num_timesteps // rate, 1)
 
@@ -81,6 +75,22 @@ def save_animation_2d(args, trajectory, distribution, rate, save_path):
     ani_kale.save(f'{save_path}/animation.mp4',
                    writer='ffmpeg', fps=20)
     return    
+
+
+def evaluate_integral(args, distribution, trajectory):
+    true_value = distribution.integral()
+    iid_samples = distribution.sample(args.particle_num, jax.random.PRNGKey(0))
+    iid_emprical = jnp.mean(distribution.integrand(iid_samples))
+    mmd_flow_samples = trajectory[-1, :, :]
+    mmd_flow_empirical = jnp.mean(distribution.integrand(mmd_flow_samples))
+    print(f'True value: {true_value}')
+    print(f'IID empirical: {iid_emprical}')
+    print(f'MMD flow empirical: {mmd_flow_empirical}')
+    mmd_flow_err = jnp.abs(true_value - mmd_flow_empirical)
+    iid_err = jnp.abs(true_value - iid_emprical)
+    jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
+    jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
+    return
 
 
 def exact_integral(args, distribution, rate, trajectory):
