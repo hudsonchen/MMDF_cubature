@@ -77,20 +77,17 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     return    
 
 
-def evaluate_integral(args, distribution, trajectory):
+def evaluate_integral(args, distribution, samples, rng_key):
     true_value = distribution.integral()
-    iid_samples = distribution.sample(args.particle_num, jax.random.PRNGKey(0))
+    iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_emprical = jnp.mean(distribution.integrand(iid_samples))
-    mmd_flow_samples = trajectory[-1, :, :]
-    mmd_flow_empirical = jnp.mean(distribution.integrand(mmd_flow_samples))
+    method_empirical = jnp.mean(distribution.integrand(samples))
     print(f'True value: {true_value}')
     print(f'IID empirical: {iid_emprical}')
-    print(f'MMD flow empirical: {mmd_flow_empirical}')
-    mmd_flow_err = jnp.abs(true_value - mmd_flow_empirical)
+    print(f'This method empirical: {method_empirical}')
+    method_err = jnp.abs(true_value - method_empirical)
     iid_err = jnp.abs(true_value - iid_emprical)
-    jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
-    jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
-    return
+    return method_err, iid_err
 
 
 def exact_integral(args, distribution, rate, trajectory):
