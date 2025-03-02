@@ -49,8 +49,8 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     # animate_fig.patch.set_alpha(0.)
     # plt.axis('off')
     # animate_ax.scatter(trajectory.Ys[:, 0], trajectory.Ys[:, 1], label='source')
-    animate_ax.set_xlim(-5, 5)
-    animate_ax.set_ylim(-5, 5)
+    animate_ax.set_xlim(-10, 10)
+    animate_ax.set_ylim(-10, 10)
     x_range = (-5, 5)
     y_range = (-5, 5)
     resolution = 100
@@ -77,17 +77,9 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     return    
 
 
-def evaluate_integral(args, distribution, samples, rng_key):
-    true_value = distribution.integral()
-    iid_samples = distribution.sample(args.particle_num, rng_key)
-    iid_emprical = jnp.mean(distribution.integrand(iid_samples))
-    method_empirical = jnp.mean(distribution.integrand(samples))
-    print(f'True value: {true_value}')
-    print(f'IID empirical: {iid_emprical}')
-    print(f'This method empirical: {method_empirical}')
-    method_err = jnp.abs(true_value - method_empirical)
-    iid_err = jnp.abs(true_value - iid_emprical)
-    return method_err, iid_err
+def evaluate_integral(distribution, samples):
+    estimate = jnp.mean(distribution.integrand(samples))
+    return estimate
 
 
 def exact_integral(args, distribution, rate, trajectory):

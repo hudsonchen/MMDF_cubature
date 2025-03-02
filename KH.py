@@ -64,20 +64,22 @@ def herd(distribution, totalSS, rng_key):
     xss = np.zeros((totalSS,numDim)) #open space in mem for array of super samples
     #gradient descent can have some probems, so make bounds to terminate if goes too far away
     minBound, maxBound = -5, 5
-    bestSeed = jax.random.normal(rng_key, shape=[numDim,])  # Adjust mean and std as needed
+    bestSeed = jax.random.normal(rng_key, shape=[numDim,])
+
+    f = lambda x: -distribution.mean_embedding(x[None, :])[0] + (distribution.kernel.make_distance_matrix(x[None,:], x[None, :]).sum())
+    results = scipy.optimize.minimize(f, bestSeed, method='L-BFGS-B', bounds=[(minBound, maxBound)])
+    xss[0,:] = results.x
     for i in tqdm(range(1, totalSS)):
         f = lambda x: -distribution.mean_embedding(x[None, :])[0] + 1./(i+1) * (distribution.kernel.make_distance_matrix(xss[:i,:], x[None, :]).sum())
         results = scipy.optimize.minimize(f, bestSeed, method='L-BFGS-B', bounds=[(minBound, maxBound)])
         #if grad descent failed, pick a random sample and try again
         if jnp.min(results.x) < minBound or jnp.max(results.x) > maxBound:
-            bestSeed = jax.random.normal(rng_key, shape=results.x.shape)  # Adjust mean and std as needed
+            bestSeed = jax.random.normal(rng_key, shape=results.x.shape)
             print("Gradient descent failed..............")
             continue
-    
-        #grad descent succeeded (yay!), so assign new value to super samples
-        xss[i,:]=results.x
+        xss[i,:] = results.x
 
-        if distribution.d == 2:
+        if distribution.d == 2 and (i % (i / 10) == 0):
             plt.figure()
             resolution = 100
             x_vals = jnp.linspace(minBound, maxBound, resolution)
@@ -113,9 +115,18 @@ def main(args):
     
     SS = herd(distribution, args.particle_num, rng_key)
     jnp.save(f'{args.save_path}/kernel_herding_samples.npy', SS)
-    kh_err, iid_err = mmd_flow.utils.evaluate_integral(args, distribution, SS, rng_key)
-    jnp.save(f'{args.save_path}/kh_err.npy', kh_err)
+    true_value = distribution.integral()
+    iid_samples = distribution.sample(args.particle_num, rng_key)
+    iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
+    iid_err = jnp.abs(true_value - iid_estimate)
+
+    kh_estimate = mmd_flow.utils.evaluate_integral(distribution, SS)
+    kh_err = jnp.abs(true_value - kh_estimate)
+    print(f'True value: {true_value}')
+    print(f'IID err: {iid_err}')
+    print(f'KH err: {kh_err}')
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
+    jnp.save(f'{args.save_path}/kh_err.npy', kh_err)
     return
     
 

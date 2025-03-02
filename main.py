@@ -12,6 +12,7 @@ from mmd_flow.gradient_flow import gradient_flow
 import mmd_flow.utils
 import time
 import pickle
+import matplotlib.pyplot as plt
 jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_platform_name", "cpu")
 
@@ -68,17 +69,58 @@ def main(args):
         k = 20
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
-        Y = jax.random.normal(rng_key, shape=(N, d)) + 0.5 # initial particles
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
     
     divergence = mmd_fixed_target(args, kernel, distribution)
     info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
-    rate = 100
+    rate = 200
     mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-    mmd_flow_err, iid_err = mmd_flow.utils.evaluate_integral(args, distribution, trajectory[-1, :, :], rng_key)
+    
+    true_value = distribution.integral()
+    iid_samples = distribution.sample(args.particle_num, rng_key)
+    iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
+    iid_err = jnp.abs(true_value - iid_estimate)
+    qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
+    qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
+    qmc_err = jnp.abs(true_value - qmc_estimate)
+    mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
+    mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
+
+    print(f'True value: {true_value}')
+    print(f'IID err: {iid_err}')
+    print(f'MMD flow err: {mmd_flow_err}')
+    print(f'QMC err: {qmc_err}')
+    jnp.save(f'{args.save_path}/qmc_err.npy', qmc_err)
     jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
+    jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
+    jnp.save(f'{args.save_path}/qmc_samples.npy', qmc_samples)
+    jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
+
+    # Visualize the samples
+    x_range = (-5, 5)
+    y_range = (-5, 5)
+    resolution = 100
+    x_vals = jnp.linspace(x_range[0], x_range[1], resolution)
+    y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
+    X, Y = jnp.meshgrid(x_vals, y_vals)
+    grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
+    logpdf = jnp.log(distribution.pdf(grid).reshape(resolution, resolution))
+
+    fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+    contour = axs[0].contourf(X, Y, logpdf, levels=20, cmap='viridis')
+    contour = axs[1].contourf(X, Y, logpdf, levels=20, cmap='viridis')
+    contour = axs[2].contourf(X, Y, logpdf, levels=20, cmap='viridis')
+
+    axs[0].scatter(iid_samples[:, 0], iid_samples[:, 1], label='iid samples')
+    axs[0].set_title('IID samples')
+    axs[1].scatter(qmc_samples[:, 0], qmc_samples[:, 1], label='qmc samples')
+    axs[1].set_title('QMC samples')
+    axs[2].scatter(trajectory[-1, :, 0], trajectory[-1, :, 1], label='mmd flow samples')
+    axs[2].set_title('MMD flow samples')
+    plt.savefig(f'{args.save_path}/samples_visualization.png')
     if args.dataset == 'gaussian':
         mmd_flow.utils.exact_integral(args, distribution, rate, trajectory)
     return
