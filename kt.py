@@ -5,12 +5,12 @@ import jax.numpy as jnp
 import numpy as np
 import sys
 import pwd
+from functools import partial
 import argparse
 from mmd_flow.distributions import Distribution
 from mmd_flow.kernels import gaussian_kernel
-from mmd_flow.mmd import mmd_fixed_target
-from mmd_flow.gradient_flow import gradient_flow
 import mmd_flow.utils
+from goodpoints import kt 
 import time
 import pickle
 import matplotlib.pyplot as plt
@@ -37,7 +37,7 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
     parser.add_argument('--step_num', type=int, default=10000)
-    parser.add_argument('--particle_num', type=int, default=20)
+    parser.add_argument('--m', type=int, default=20)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
     parser.add_argument('--integrand', type=str, default='neg_exp')
     args = parser.parse_args()  
@@ -46,14 +46,28 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"mmd_flow/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"kt/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
-    args.save_path += f"__particle_num_{args.particle_num}__inject_noise_scale_{args.inject_noise_scale}"
+    args.save_path += f"__particle_num_{2 ** int(args.m)}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
     with open(f'{args.save_path}/configs', 'wb') as handle:
         pickle.dump(vars(args), handle, protocol=pickle.HIGHEST_PROTOCOL)
     return args
+
+
+def kernel_eval(x, y, params_k):
+    """Returns matrix of kernel evaluations kernel(xi, yi) for each row index i.
+    x and y should have the same number of columns, and x should either have the
+    same shape as y or consist of a single row, in which case, x is broadcasted 
+    to have the same shape as y.
+    """
+    if params_k["name"] in ["gauss", "gauss_rt"]:
+        k_vals = np.sum((x-y)**2,axis=1)
+        scale = -.5/params_k["var"]
+        return(np.exp(scale*k_vals))
+    
+    raise ValueError("Unrecognized kernel name {}".format(params_k["name"]))
 
 
 def main(args):
@@ -74,59 +88,37 @@ def main(args):
         Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
-    
-    divergence = mmd_fixed_target(args, kernel, distribution)
-    info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
-    rate = 200
-    mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-    
+
+    d = int(2)
+    var = jnp.square(float(args.bandwidth))
+    params_k_swap = {"name": "gauss", "var": var, "d": int(d)}
+    params_k_split = {"name": "gauss_rt", "var": var/2., "d": int(d)}
+    split_kernel = partial(kernel_eval, params_k=params_k_split)
+    swap_kernel = partial(kernel_eval, params_k=params_k_swap)
+    delta = .5
+    m = 6
+    n = int(2**(2*m))
+    X = distribution.sample(n, rng_key)
+    X = np.array(X)
+    coresets = kt.thin(X, m, split_kernel, swap_kernel, delta=delta, verbose=True)
+    kt_samples = X[coresets, :]
+    pause = True
+
     true_value = distribution.integral()
-    iid_samples = distribution.sample(args.particle_num, rng_key)
+    iid_samples = distribution.sample(kt_samples.shape[0], rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
     iid_err = jnp.abs(true_value - iid_estimate)
-    qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
-    qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
-    qmc_err = jnp.abs(true_value - qmc_estimate)
-    mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
-    mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
+    kt_estimate = mmd_flow.utils.evaluate_integral(distribution, kt_samples)
+    kt_err = jnp.abs(true_value - kt_estimate)
 
     print(f'True value: {true_value}')
     print(f'IID err: {iid_err}')
-    print(f'MMD flow err: {mmd_flow_err}')
-    print(f'QMC err: {qmc_err}')
-    jnp.save(f'{args.save_path}/qmc_err.npy', qmc_err)
-    jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
+    print(f'KT err: {kt_err}')
+    jnp.save(f'{args.save_path}/kt_err.npy', kt_err)
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
     jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
-    jnp.save(f'{args.save_path}/qmc_samples.npy', qmc_samples)
-    jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
-
-    # Visualize the samples
-    x_range = (-5, 5)
-    y_range = (-5, 5)
-    resolution = 100
-    x_vals = jnp.linspace(x_range[0], x_range[1], resolution)
-    y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
-    X, Y = jnp.meshgrid(x_vals, y_vals)
-    grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
-    logpdf = jnp.log(distribution.pdf(grid).reshape(resolution, resolution))
-
-    fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-    contour = axs[0].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-    contour = axs[1].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-    contour = axs[2].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-
-    axs[0].scatter(iid_samples[:, 0], iid_samples[:, 1], label='iid samples')
-    axs[0].set_title('IID samples')
-    axs[1].scatter(qmc_samples[:, 0], qmc_samples[:, 1], label='qmc samples')
-    axs[1].set_title('QMC samples')
-    axs[2].scatter(trajectory[-1, :, 0], trajectory[-1, :, 1], label='mmd flow samples')
-    axs[2].set_title('MMD flow samples')
-    plt.savefig(f'{args.save_path}/samples_visualization.png')
-    if args.dataset == 'gaussian':
-        mmd_flow.utils.exact_integral(args, distribution, rate, trajectory)
+    jnp.save(f'{args.save_path}/kt_samples.npy', kt_samples)
     return
-    
 
 if __name__ == '__main__':
     args = get_config()
