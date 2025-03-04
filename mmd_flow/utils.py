@@ -27,7 +27,7 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     T = trajectory.shape[0]
     Y = trajectory[0, :, :]
     mmd_divergence = mmd_fixed_target(args, kernel, distribution)
-    mmd_distance = jnp.sqrt(jax.vmap(mmd_divergence)(trajectory[::rate, :, :], jax.random.split(rng_key, trajectory[::rate, :, :].shape[0])))
+    mmd_distance = jax.vmap(mmd_divergence)(trajectory[::rate, :, :])
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 4))
     axs[0].plot(mmd_distance, label='mmd')

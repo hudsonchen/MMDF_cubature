@@ -87,6 +87,7 @@ def main(args):
     qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
     qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
     qmc_err = jnp.abs(true_value - qmc_estimate)
+
     mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
     mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
 
@@ -101,30 +102,6 @@ def main(args):
     jnp.save(f'{args.save_path}/qmc_samples.npy', qmc_samples)
     jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
 
-    # Visualize the samples
-    x_range = (-5, 5)
-    y_range = (-5, 5)
-    resolution = 100
-    x_vals = jnp.linspace(x_range[0], x_range[1], resolution)
-    y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
-    X, Y = jnp.meshgrid(x_vals, y_vals)
-    grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
-    logpdf = jnp.log(distribution.pdf(grid).reshape(resolution, resolution))
-
-    fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-    contour = axs[0].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-    contour = axs[1].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-    contour = axs[2].contourf(X, Y, logpdf, levels=20, cmap='viridis')
-
-    axs[0].scatter(iid_samples[:, 0], iid_samples[:, 1], label='iid samples')
-    axs[0].set_title('IID samples')
-    axs[1].scatter(qmc_samples[:, 0], qmc_samples[:, 1], label='qmc samples')
-    axs[1].set_title('QMC samples')
-    axs[2].scatter(trajectory[-1, :, 0], trajectory[-1, :, 1], label='mmd flow samples')
-    axs[2].set_title('MMD flow samples')
-    plt.savefig(f'{args.save_path}/samples_visualization.png')
-    if args.dataset == 'gaussian':
-        mmd_flow.utils.exact_integral(args, distribution, rate, trajectory)
     return
     
 

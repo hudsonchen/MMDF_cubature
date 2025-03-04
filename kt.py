@@ -46,7 +46,7 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"kt/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"kernel_thinning/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
     args.save_path += f"__particle_num_{2 ** int(args.m)}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
@@ -72,20 +72,17 @@ def kernel_eval(x, y, params_k):
 
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
-    N = args.particle_num
     d = 2
     kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
-        Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
     elif args.dataset == 'mog':
         covariances = jnp.load('data/mog_covs.npy')
         means = jnp.load('data/mog_means.npy')
         k = 20
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
-        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
 
@@ -96,13 +93,12 @@ def main(args):
     split_kernel = partial(kernel_eval, params_k=params_k_split)
     swap_kernel = partial(kernel_eval, params_k=params_k_swap)
     delta = .5
-    m = 6
+    m = args.m
     n = int(2**(2*m))
     X = distribution.sample(n, rng_key)
     X = np.array(X)
     coresets = kt.thin(X, m, split_kernel, swap_kernel, delta=delta, verbose=True)
     kt_samples = X[coresets, :]
-    pause = True
 
     true_value = distribution.integral()
     iid_samples = distribution.sample(kt_samples.shape[0], rng_key)

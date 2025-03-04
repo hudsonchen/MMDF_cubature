@@ -22,9 +22,9 @@ class mmd_fixed_target:
     def get_first_variation(self, Y) -> Callable:
         return partial(self.get_witness_function, Y=Y)
     
-    def __call__(self, Y, rng_key):
-        target_samples = self.distribution.sample(Y.shape[0], rng_key)
-        K_XX = self.kernel.make_distance_matrix(target_samples, target_samples)
+    def __call__(self, Y):
+        K_XX = self.distribution.mean_mean_embedding()
         K_YY = self.kernel.make_distance_matrix(Y, Y)
-        K_XY = self.kernel.make_distance_matrix(target_samples, Y)
-        return K_XX.mean() + K_YY.mean() - 2 * K_XY.mean()
+        K_XY = self.distribution.mean_embedding(Y)
+        return jnp.sqrt(K_XX + K_YY.mean() - 2 * K_XY.mean())
+    

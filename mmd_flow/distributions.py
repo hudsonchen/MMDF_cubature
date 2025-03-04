@@ -42,6 +42,17 @@ class Distribution:
                 kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
         return kme
     
+    def mean_mean_embedding(self):
+        if self.k == 1:
+            double_kme = self.kernel.mean_mean_embedding(self.means[0], self.covariances[0])
+            return double_kme
+        else:
+            double_kme = 0
+            for i in range(self.k):
+                for j in range(self.k):
+                    double_kme += self.weights[i] * self.weights[j] * self.kernel.mean_mean_embedding(self.means[i], self.means[j], self.covariances[i], self.covariances[j])
+            return double_kme
+    
     def sample(self, sample_size, rng_key):
         """
         Sample i.i.d from the mixture of Gaussians.
@@ -56,13 +67,14 @@ class Distribution:
         rng_key, _ = jax.random.split(rng_key)
         component_indices = jax.random.choice(rng_key, self.k, shape=(sample_size,), p=self.weights)
 
-        # Generate multivariate normal samples
-        means = self.means[component_indices]
-        covs = self.covariances[component_indices]
+        means = self.means[component_indices, :]
+        covs = self.covariances[component_indices, :, :]
 
-        # Sample from multivariate normals
-        rng_key, _ = jax.random.split(rng_key)
-        samples = means + jax.random.multivariate_normal(rng_key, jnp.zeros(self.d), covs, shape=(sample_size,))
+        def sample_gaussian(mean, cov, key):
+            return jax.random.multivariate_normal(key, mean, cov)
+
+        subkeys = jax.random.split(rng_key, sample_size)
+        samples = jax.vmap(sample_gaussian)(means, covs, subkeys)
         return samples
     
     def qmc_sample(self, sample_size, rng_key):
@@ -76,18 +88,25 @@ class Distribution:
         Returns:
         - samples: (sample_size, d) array of samples.
         """
-        rng_key, subkey = jax.random.split(rng_key)
-        component_indices = jax.random.choice(subkey, self.k, shape=(sample_size,), p=self.weights)
+        component_indices = jax.random.choice(rng_key, self.k, shape=(sample_size,), p=self.weights)
+        unique_components, sample_sizes = jnp.unique(component_indices, return_counts=True)
 
-        # Generate multivariate normal samples
-        rng_key, subkey = jax.random.split(rng_key)
-        means = self.means[component_indices]
-        covs = self.covariances[component_indices]
-        u = scipy.stats.qmc.Sobol(self.d).random(sample_size)
-        u = jnp.array(u)
-        L = jax.vmap(jnp.linalg.cholesky)(covs)
-        samples = means + jnp.einsum('ik,ijk->ij', jax.scipy.stats.norm.ppf(u), L)
-        return samples
+        mean = self.means[unique_components]
+        cov = self.covariances[unique_components]
+
+        def generate_qmc_samples(mean, cov, size):
+            sobol = scipy.stats.qmc.Sobol(self.d)
+            u = jnp.array(sobol.random(size))  # Generate Sobol sequence
+            L = jnp.linalg.cholesky(cov)      # Compute Cholesky decomposition
+            return mean + jax.scipy.stats.norm.ppf(u) @ L.T
+
+        # Generate samples for each unique Gaussian component
+        samples_dict = {
+            int(unique_components[i]): generate_qmc_samples(mean[i], cov[i], sample_sizes[i])
+            for i in range(len(unique_components))
+        }
+        qmc_samples = jnp.concatenate([samples_dict[int(idx)] for idx in samples_dict.keys()], axis=0)
+        return qmc_samples
     
     def pdf(self, Y):
         """
