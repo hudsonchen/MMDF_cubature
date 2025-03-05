@@ -77,8 +77,11 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     return    
 
 
-def evaluate_integral(distribution, samples):
-    estimate = jnp.mean(distribution.integrand(samples))
+def evaluate_integral(distribution, samples, weights=None):
+    if weights is not None:
+        estimate = jnp.sum(weights * distribution.integrand(samples))
+    else:
+        estimate = jnp.mean(distribution.integrand(samples))
     return estimate
 
 
