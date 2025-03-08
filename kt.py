@@ -10,7 +10,7 @@ import argparse
 from mmd_flow.distributions import Distribution
 from mmd_flow.kernels import gaussian_kernel
 import mmd_flow.utils
-from goodpoints import kt 
+from goodpoints import kt , compress
 import time
 import pickle
 import matplotlib.pyplot as plt
@@ -37,7 +37,7 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
     parser.add_argument('--step_num', type=int, default=10000)
-    parser.add_argument('--m', type=int, default=20)
+    parser.add_argument('--m', type=int, default=2)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
     parser.add_argument('--integrand', type=str, default='neg_exp')
     args = parser.parse_args()  
@@ -97,7 +97,17 @@ def main(args):
     n = int(2**(2*m))
     X = distribution.sample(n, rng_key)
     X = np.array(X)
-    coresets = kt.thin(X, m, split_kernel, swap_kernel, delta=delta, verbose=True)
+    g = 0
+    size = m
+    halve_prob = delta / ( 4*(4**size)*(2**g)*( g + (2**g) * (size  - g) ) )
+    thin_prob = delta * g / (g + ( (2**g)*(size - g) ))
+
+    thin = partial(kt.thin, m=0, split_kernel = split_kernel, swap_kernel = swap_kernel, delta = thin_prob)
+    halve = compress.symmetrize(lambda x: kt.thin(X = x, m=1, split_kernel = split_kernel, swap_kernel = swap_kernel, 
+                                              unique=True, delta = halve_prob*(len(x)**2)))
+
+    # coresets = kt.thin(X, m, split_kernel, swap_kernel, delta=delta, verbose=True)
+    coresets = compress.compresspp(X, halve, thin, g)
     kt_samples = X[coresets, :]
 
     true_value = distribution.integral()
