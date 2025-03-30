@@ -33,13 +33,12 @@ class Distribution:
             assert jnp.isclose(self.weights.sum(), 1), "Weights must sum to 1."
 
     def mean_embedding(self, Y):
-        if self.k == 1:
-            kme = self.kernel.mean_embedding(Y, self.means[0], self.covariances[0])
-            return kme
-        else:
-            kme = jnp.zeros(len(Y))
-            for i in range(self.k):
-                kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
+        # kme = jnp.zeros(len(Y))
+        # for i in range(self.k):
+        #     kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
+            # Vectorized computation using vmap
+        kme_values = jax.vmap(self.kernel.mean_embedding, in_axes=(None, 0, 0))(Y, self.means, self.covariances)
+        kme = jnp.tensordot(self.weights, kme_values, axes=1)
         return kme
     
     def mean_mean_embedding(self):

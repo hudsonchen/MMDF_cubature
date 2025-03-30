@@ -5,17 +5,19 @@ import jax.numpy as jnp
 import numpy as np
 import sys
 import pwd
+import scipy
 import argparse
 from mmd_flow.distributions import Distribution
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
 import mmd_flow.utils
+from tqdm import tqdm
 import time
 import pickle
 import matplotlib.pyplot as plt
 jax.config.update("jax_enable_x64", True)
-# jax.config.update("jax_platform_name", "cpu")
+jax.config.update("jax_platform_name", "cpu")
 
 if pwd.getpwuid(os.getuid())[0] == 'zongchen':
     os.chdir('/home/zongchen/mmd_flow_cubature/')
@@ -46,7 +48,7 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"mmd_flow/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"support_points/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
     args.save_path += f"__particle_num_{args.particle_num}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
@@ -54,6 +56,72 @@ def create_dir(args):
     with open(f'{args.save_path}/configs', 'wb') as handle:
         pickle.dump(vars(args), handle, protocol=pickle.HIGHEST_PROTOCOL)
     return args
+
+
+def loss(Y, X):
+    n = X.shape[0]
+    N = Y.shape[0]
+
+    dists_x_y = scipy.spatial.distance.cdist(X, Y)
+    dists_x_x = scipy.spatial.distance.cdist(X, X)
+    dists_y_y = scipy.spatial.distance.cdist(Y, Y)
+    term1 = (2 / n / N) * np.sum(dists_x_y)
+    term2 = (1 / n**2) * np.sum(dists_x_x)
+    term3 = (1 / N**2) * np.sum(dists_y_y)
+    return -term1 + term2 + term3
+
+def update_support(Y, X):
+    n, d = X.shape
+    N = Y.shape[0]
+
+    diff = X[:, None, :] - X[None, :, :]  # shape (n, n, d)
+    norm = np.linalg.norm(diff, axis=-1, keepdims=True) + 1e-10
+
+    mask = ~np.eye(n, dtype=bool)
+    masked_diff = (diff / norm) * mask[..., None]
+    term1 = (N / n) * np.sum(masked_diff, axis=1)  # shape (n, d)
+
+    dists = scipy.spatial.distance.cdist(X, Y) + 1e-10
+    weights = np.ones(Y.shape[0])
+    term2 = np.dot(dists**-1, (weights[:, None] * Y))  # shape (n, d)
+    q = np.dot(dists**-1, weights)  # shape (n,)
+
+    M = (term1 + term2) / q[:, None]
+    return M, q
+
+def fit_mm(distribution, X, maxit, tol, verbosity, wgts, rng_key):
+    success = False
+    dbar = np.zeros(X.shape[0])
+    for itr in tqdm(range(maxit)):
+        rng_key, _ = jax.random.split(rng_key)
+        Y = distribution.sample(X.shape[0], rng_key=rng_key)
+        w = wgts[itr]
+        M, q = update_support(Y, X)
+        kappa = w * q / (w * q + (1-w) * dbar)
+        X_next = (1 - kappa[:, None]) * X + kappa[:, None] * M
+        dbar = w * q + (1-w) * dbar
+        dis = np.linalg.norm(X_next - X)
+        if verbosity > 1:
+            print(f"{itr:5d} {dis:12.5f} {loss(Y, X):12.5f}")
+        if dis < tol:
+            success = True
+            break
+        X = X_next
+    return X, success
+
+
+def get_start(Y, n, rng_key):
+    N, d = Y.shape
+    idx = jax.random.permutation(rng_key, N)[:n]
+    return Y[idx, :] + 0.1 * jax.random.normal(rng_key, shape=(n, d))
+
+def support_points(args, distribution, npt, maxit_mm, tol_mm, verbosity, rng_key):
+    X = get_start(distribution.sample(args.particle_num, rng_key), npt, rng_key)
+    n, d = X.shape
+    wgts = (n*d) / (n*d + np.arange(args.step_num + 1))
+    X, success = fit_mm(distribution, X, maxit=maxit_mm, tol=tol_mm, verbosity=verbosity, wgts=wgts, rng_key=rng_key)
+    print(f"Success: {success}")
+    return X
 
 
 def main(args):
@@ -64,48 +132,34 @@ def main(args):
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
-        Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
     elif args.dataset == 'mog':
         covariances = jnp.load('data/mog_covs.npy')
         means = jnp.load('data/mog_means.npy')
         k = 20
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
-        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
-    
-    divergence = mmd_fixed_target(args, kernel, distribution)
-    info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
-    rate = int(args.step_num // 200)
-    mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-    
+
     true_value = distribution.integral()
     iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
     iid_err = jnp.abs(true_value - iid_estimate)
-    qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
-    qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
-    qmc_err = jnp.abs(true_value - qmc_estimate)
-
-    mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
-    mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
+    sp_samples = support_points(args, distribution, npt=args.particle_num, maxit_mm=1000, tol_mm=1e-4, verbosity=0, rng_key=rng_key)
+    sp_estimate = mmd_flow.utils.evaluate_integral(distribution, sp_samples)
+    sp_err = jnp.abs(true_value - sp_estimate)
 
     print(f'True value: {true_value}')
     print(f'IID err: {iid_err}')
-    print(f'MMD flow err: {mmd_flow_err}')
-    print(f'QMC err: {qmc_err}')
-    jnp.save(f'{args.save_path}/qmc_err.npy', qmc_err)
-    jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
+    print(f'Support Points err: {sp_err}')
+    jnp.save(f'{args.save_path}/sp_err.npy', sp_err)
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
     jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
-    jnp.save(f'{args.save_path}/qmc_samples.npy', qmc_samples)
-    jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
+    jnp.save(f'{args.save_path}/sp_samples.npy', sp_samples)
 
     return
-    
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = get_config()
     args = create_dir(args)
     print('Program started!')

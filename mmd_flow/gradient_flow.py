@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from jax import grad, random
 from jax.tree_util import tree_map
 from jax_tqdm import scan_tqdm
+import numpy as np
 from .typing import Array, Divergence
 
 
@@ -17,8 +18,14 @@ def gradient_flow(
 ):
     optimizer = optax.sgd(learning_rate=args.step_size)
     opt_state = optimizer.init(Y)
-    
-    @scan_tqdm(args.step_num)
+    threshold = 1e5
+
+    if args.step_num <= threshold:
+        step_num = int(args.step_num)
+    else:
+        step_num = int(threshold)
+
+    @scan_tqdm(step_num)
     def one_step(dummy, i: Array):
         opt_state, rng_key, Y = dummy
         optimizer = optax.sgd(learning_rate=args.step_size)
@@ -34,5 +41,16 @@ def gradient_flow(
         dummy_next = (new_opt_state, rng_key, Y_next)
         return dummy_next, Y_next
 
-    info_dict, trajectory = jax.lax.scan(one_step, (opt_state, rng_key, Y), jnp.arange(args.step_num))
-    return info_dict, trajectory
+    if args.step_num <= threshold:
+        info_dict, trajectory = jax.lax.scan(one_step, (opt_state, rng_key, Y), jnp.arange(step_num))
+        return info_dict, trajectory
+    else:
+        trajectory_all = np.zeros((args.step_num, Y.shape[0], Y.shape[1]))
+        for iter in range(int(args.step_num // threshold)):
+            info_dict, trajectory = jax.lax.scan(one_step, (opt_state, rng_key, Y), jnp.arange(threshold))
+            Y = trajectory[-1, :, :]
+            opt_state = optimizer.init(Y)
+            rng_key, _ = random.split(rng_key)
+            trajectory_all[iter * int(threshold): (iter + 1) * int(threshold), :, :] = trajectory
+        return info_dict, trajectory_all
+

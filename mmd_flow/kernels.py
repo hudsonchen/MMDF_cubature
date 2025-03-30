@@ -16,7 +16,7 @@ class gaussian_kernel():
         self.sigma = sigma
 
     def __call__(self, x: Array, y: Array) -> Array:
-        return jnp.exp(-0.5 * _l2_norm_squared(_rescale(x - y, self.sigma)))
+        return jnp.exp(- 0.5 * _l2_norm_squared(_rescale(x - y, self.sigma)))
 
     def make_distance_matrix(self, X: Array, Y: Array) -> Array:
         return vmap(vmap(type(self).__call__, (None, None, 0)), (None, 0, None))(
