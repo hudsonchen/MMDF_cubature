@@ -84,9 +84,6 @@ def main(args):
     iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
     iid_err = jnp.abs(true_value - iid_estimate)
-    qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
-    qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
-    qmc_err = jnp.abs(true_value - qmc_estimate)
 
     mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
     mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
@@ -94,12 +91,9 @@ def main(args):
     print(f'True value: {true_value}')
     print(f'IID err: {iid_err}')
     print(f'MMD flow err: {mmd_flow_err}')
-    print(f'QMC err: {qmc_err}')
-    jnp.save(f'{args.save_path}/qmc_err.npy', qmc_err)
     jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
     jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
-    jnp.save(f'{args.save_path}/qmc_samples.npy', qmc_samples)
     jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
 
     return
