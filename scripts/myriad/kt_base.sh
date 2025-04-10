@@ -30,4 +30,4 @@ date
 which pip
 which python
 
-python /home/ucabzc9/Scratch/MMDF_cubature/kt.py $JOB_PARAMS
+python /home/ucabzc9/Scratch/mmd_flow_cubature/kt.py $JOB_PARAMS
