@@ -140,3 +140,6 @@ if __name__ == '__main__':
     print(vars(args))
     main(args)
     print('Program finished!')
+    new_save_path = args.save_path + '__complete'
+    os.rename(args.save_path, new_save_path)
+    print(f'Job completed. Renamed folder to: {new_save_path}')

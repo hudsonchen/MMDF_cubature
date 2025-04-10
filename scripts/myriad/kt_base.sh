@@ -1,11 +1,11 @@
-#$ -l mem=20G
+#$ -l mem=10G
 #$ -pe smp 8
-#$ -l h_rt=6:00:0
+#$ -l h_rt=2:00:0
 #$ -R y
 #$ -S /bin/bash
 #$ -wd /home/ucabzc9/Scratch/
 #$ -j y
-#$ -N nest_bq_bo_ackley
+#$ -N mmd_cubature_house
 
 JOB_PARAMS=$(sed "${SGE_TASK_ID}q;d" "$1")
 echo "Job params: $JOB_PARAMS"
@@ -22,7 +22,7 @@ module -f unload compilers
 module load compilers/gnu/4.9.2
 module load python/miniconda3/4.10.3
 source $UCL_CONDA_PATH/etc/profile.d/conda.sh
-conda activate /lustre/home/ucabzc9/.conda/envs/cbq
+conda activate /lustre/home/ucabzc9/.conda/envs/mmd_cubature
 
 date
 
@@ -30,4 +30,4 @@ date
 which pip
 which python
 
-python /home/ucabzc9/Scratch/nest_bq/BO.py $JOB_PARAMS
+python /home/ucabzc9/Scratch/MMDF_cubature/kt.py $JOB_PARAMS
