@@ -36,7 +36,7 @@ class Distribution:
         # kme = jnp.zeros(len(Y))
         # for i in range(self.k):
         #     kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
-            # Vectorized computation using vmap
+        # Vectorized computation using vmap
         kme_values = jax.vmap(self.kernel.mean_embedding, in_axes=(None, 0, 0))(Y, self.means, self.covariances)
         kme = jnp.tensordot(self.weights, kme_values, axes=1)
         return kme
@@ -136,4 +136,71 @@ class Distribution:
                 temp * jnp.sqrt(jnp.linalg.det(2 * self.covariances[i] + jnp.eye(self.d)))
                 cov_new = jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d))
                 integral += self.weights[i] * temp * jnp.sqrt(jnp.linalg.det(cov_inv)) * jnp.sqrt(jnp.linalg.det(cov_new))
+        return integral
+    
+
+class Empirical_Distribution:
+    def __init__(self, kernel, samples, integrand_name):
+        self.kernel = kernel
+        self.samples = samples
+        self.integrand_name = integrand_name
+        self.n = len(samples)
+        self.d = samples.shape[1]
+        
+        if integrand_name == 'square':
+            self.integrand = lambda x: (x**2).sum(1)
+        elif integrand_name == 'neg_exp':
+            self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
+        else:
+            raise ValueError('Function not recognized!')
+        
+    def mean_embedding(self, Y):
+        """
+        Compute the kernel mean embedding.
+
+        Parameters:
+        - Y: (n, d) array of points to evaluate 
+
+        Returns:
+        - pdf: (n,) array of PDF values.
+        """
+        kme = self.kernel.make_distance_matrix(Y, self.samples).mean(1)
+        return kme
+    
+    def mean_mean_embedding(self):
+        """
+        Compute the kernel mean embedding of the empirical distribution.
+
+        Returns:
+        - double_kme: scalar, the value of the double integral.
+        """
+        double_kme = self.kernel.make_distance_matrix(self.samples, self.samples).mean()
+        return double_kme
+    
+    def sample(self, sample_size, rng_key):
+        """
+        Sample i.i.d from the empirical distribution.
+
+        Parameters:
+        - sample_size: int, the number of samples to draw.
+        - rng_key: JAX PRNGKey for reproducibility.
+
+        Returns:
+        - samples: (sample_size, d) array of samples.
+        """
+        rng_key, _ = jax.random.split(rng_key)
+        indices = jax.random.choice(rng_key, self.n, shape=(sample_size,), replace=True)
+        return self.samples[indices]
+    
+    def integral(self):
+        """
+        Compute the integral of the empirical distribution.
+
+        Returns:
+        - integral: scalar, the value of the integral.
+        """
+        if self.integrand_name == 'square':
+            integral = (self.samples**2).sum(1).mean()
+        elif self.integrand_name == 'neg_exp':
+            integral = jnp.exp(-(self.samples**2).sum(1)).mean()
         return integral

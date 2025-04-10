@@ -45,12 +45,22 @@ def gradient_flow(
         info_dict, trajectory = jax.lax.scan(one_step, (opt_state, rng_key, Y), jnp.arange(step_num))
         return info_dict, trajectory
     else:
-        trajectory_all = np.zeros((args.step_num, Y.shape[0], Y.shape[1]))
+        # This is to reduce the memory usage of saving the entire trajectory, this does not affect the gradient flow updates
+        save_every = 4
+        saved_steps_per_chunk = threshold // save_every
+        trajectory_all = np.zeros((args.step_num // save_every, Y.shape[0], Y.shape[1]))
+
         for iter in range(int(args.step_num // threshold)):
             info_dict, trajectory = jax.lax.scan(one_step, (opt_state, rng_key, Y), jnp.arange(threshold))
             Y = trajectory[-1, :, :]
             opt_state = optimizer.init(Y)
             rng_key, _ = random.split(rng_key)
-            trajectory_all[iter * int(threshold): (iter + 1) * int(threshold), :, :] = trajectory
+
+            # Save every 3rd step from this chunk
+            trajectory_subsampled = trajectory[::save_every]  # shape: (threshold // 3, N, D)
+            start_idx = int(iter * saved_steps_per_chunk)
+            end_idx = int((iter + 1) * saved_steps_per_chunk)
+            trajectory_all[start_idx:end_idx, :, :] = trajectory_subsampled
+
         return info_dict, trajectory_all
 

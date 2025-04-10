@@ -6,7 +6,7 @@ import numpy as np
 import sys
 import pwd
 import argparse
-from mmd_flow.distributions import Distribution
+from mmd_flow.distributions import Distribution, Empirical_Distribution
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
@@ -36,7 +36,7 @@ def get_config():
     parser.add_argument('--step_size', type=float, default=0.1) # Step size will be rescaled by lmbda, the actual step size = step size * lmbda
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
-    parser.add_argument('--step_num', type=int, default=10000)
+    parser.add_argument('--step_num', type=int, default=100000)
     parser.add_argument('--particle_num', type=int, default=20)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
     parser.add_argument('--integrand', type=str, default='neg_exp')
@@ -59,18 +59,24 @@ def create_dir(args):
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
     N = args.particle_num
-    d = 2
     kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
+        d = 2
         Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
     elif args.dataset == 'mog':
         covariances = jnp.load('data/mog_covs.npy')
         means = jnp.load('data/mog_means.npy')
         k = 20
+        d = 2
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
+    elif args.dataset == 'house_8L':
+        data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
         Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
@@ -78,8 +84,11 @@ def main(args):
     divergence = mmd_fixed_target(args, kernel, distribution)
     info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
     rate = int(args.step_num // 200)
-    mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-    
+    if d == 2:
+        # Save the animation
+        mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+    else:
+        pass
     true_value = distribution.integral()
     iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)

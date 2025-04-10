@@ -7,7 +7,7 @@ import sys
 import pwd
 import scipy
 import argparse
-from mmd_flow.distributions import Distribution
+from mmd_flow.distributions import Distribution, Empirical_Distribution
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
@@ -39,7 +39,7 @@ def get_config():
     parser.add_argument('--step_size', type=float, default=0.1) # Step size will be rescaled by lmbda, the actual step size = step size * lmbda
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
-    parser.add_argument('--step_num', type=int, default=10000)
+    parser.add_argument('--step_num', type=int, default=100000)
     parser.add_argument('--particle_num', type=int, default=20)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
     parser.add_argument('--integrand', type=str, default='neg_exp')
@@ -132,9 +132,9 @@ def support_points(args, distribution, npt, tol_mm, verbosity, rng_key):
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
     N = args.particle_num
-    d = 2
     kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
+        d = 2
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
     elif args.dataset == 'mog':
@@ -142,7 +142,12 @@ def main(args):
         means = jnp.load('data/mog_means.npy')
         k = 20
         weights = jnp.ones(k) / k
+        d = 2
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
+    elif args.dataset == 'house_8L':
+        data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
     else:
         raise ValueError('Dataset not recognized!')
 

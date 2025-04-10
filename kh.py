@@ -7,7 +7,7 @@ import scipy
 import sys
 import pwd
 import argparse
-from mmd_flow.distributions import Distribution
+from mmd_flow.distributions import Distribution, Empirical_Distribution
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
@@ -97,19 +97,22 @@ def herd(distribution, totalSS, rng_key):
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
     N = args.particle_num
-    d = 2
     kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
-        Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
+        d = 2
     elif args.dataset == 'mog':
         covariances = jnp.load('data/mog_covs.npy')
         means = jnp.load('data/mog_means.npy')
         k = 20
+        d = 2
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
-        Y = jax.random.normal(rng_key, shape=(N, d)) + 0.5 # initial particles
+    elif args.dataset == 'house_8L':
+        data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
     else:
         raise ValueError('Dataset not recognized!')
     
