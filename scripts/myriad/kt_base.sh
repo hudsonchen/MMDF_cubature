@@ -22,7 +22,7 @@ module -f unload compilers
 module load compilers/gnu/4.9.2
 module load python/miniconda3/4.10.3
 source $UCL_CONDA_PATH/etc/profile.d/conda.sh
-conda activate /lustre/home/ucabzc9/.conda/envs/mmd_cubature
+conda activate mmd_cubature
 
 date
 
