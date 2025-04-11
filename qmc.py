@@ -6,7 +6,7 @@ import numpy as np
 import sys
 import pwd
 import argparse
-from mmd_flow.distributions import Distribution
+from mmd_flow.distributions import Distribution, Empirical_Distribution
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
@@ -70,6 +70,11 @@ def main(args):
         k = 20
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
+    elif args.dataset == 'house_8L':
+        data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
     else:
         raise ValueError('Dataset not recognized!')
     
@@ -77,10 +82,14 @@ def main(args):
     iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
     iid_err = jnp.abs(true_value - iid_estimate)
-    qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
+    if args.dataset == 'mog' or args.dataset == 'gaussian':
+        # QMC only works for Gaussian and MOG
+        qmc_samples = distribution.qmc_sample(args.particle_num, rng_key)
+    else:
+        qmc_samples = iid_samples
+        
     qmc_estimate = mmd_flow.utils.evaluate_integral(distribution, qmc_samples)
     qmc_err = jnp.abs(true_value - qmc_estimate)
-
     print(f'True value: {true_value}')
     print(f'IID err: {iid_err}')
     print(f'QMC err: {qmc_err}')

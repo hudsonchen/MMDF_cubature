@@ -82,19 +82,27 @@ def main(args):
         raise ValueError('Dataset not recognized!')
     
     divergence = mmd_fixed_target(args, kernel, distribution)
-    info_dict, trajectory = gradient_flow(divergence, rng_key, Y, args)
-    rate = int(args.step_num // 200)
-    if d == 2:
-        # Save the animation
-        mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+    save_trajectory = False
+    if save_trajectory:
+        info_dict, trajectory = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
+        mmd_flow_samples = trajectory[-1, :, :]
+        
+        rate = int(args.step_num // 200)
+        if d == 2:
+            # Save the animation
+            mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+        else:
+            pass
     else:
-        pass
+        info_dict, mmd_flow_samples = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
+
+    
     true_value = distribution.integral()
     iid_samples = distribution.sample(args.particle_num, rng_key)
     iid_estimate = mmd_flow.utils.evaluate_integral(distribution, iid_samples)
     iid_err = jnp.abs(true_value - iid_estimate)
 
-    mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, trajectory[-1, :, :])
+    mmd_flow_estimate = mmd_flow.utils.evaluate_integral(distribution, mmd_flow_samples)
     mmd_flow_err = jnp.abs(true_value - mmd_flow_estimate)
 
     print(f'True value: {true_value}')
@@ -103,7 +111,7 @@ def main(args):
     jnp.save(f'{args.save_path}/mmd_flow_err.npy', mmd_flow_err)
     jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
     jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
-    jnp.save(f'{args.save_path}/mmd_flow_samples.npy', trajectory[-1, :, :])
+    jnp.save(f'{args.save_path}/mmd_flow_samples.npy', mmd_flow_samples)
 
     return
     

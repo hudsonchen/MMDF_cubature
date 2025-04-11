@@ -1,4 +1,4 @@
-for seed in 8
+for seed in 10
 do
   for m in 4 5 6 7 8 9
   do

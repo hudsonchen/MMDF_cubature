@@ -177,5 +177,9 @@ if __name__ == "__main__":
     main(args)
     print('Program finished!')
     new_save_path = args.save_path + '__complete'
+    
+    import shutil
+    if os.path.exists(new_save_path):
+        shutil.rmtree(new_save_path)  # Deletes existing folder
     os.rename(args.save_path, new_save_path)
     print(f'Job completed. Renamed folder to: {new_save_path}')
