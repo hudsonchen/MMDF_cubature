@@ -43,7 +43,23 @@ class gaussian_kernel():
     def mean_mean_embedding(self, mu1, mu2, Sigma1, Sigma2) -> float:
         return kme_double_RBF_Gaussian(mu1, mu2, Sigma1, Sigma2, self.sigma)
 
-        
+    
+    def mean_embedding_uniform(self, a: Array, b: Array, X: Array) -> Array:
+        """
+        The implementation of the kernel mean embedding of the RBF kernel with Uniform distribution
+        A fully vectorized implementation.
+
+        Args:
+            a: (D,)
+            b: (D,)
+            l: float
+            X: (M, D)
+
+        Returns:
+            kernel mean embedding: (M, )
+        """
+        return kme_RBF_uniform(a, b, self.sigma, X)
+    
 # class laplace_kernel(base_kernel):
 #     sigma: float
 
@@ -134,23 +150,59 @@ def kme_double_RBF_Gaussian(mu_1, mu_2, Sigma_1, Sigma_2, l):
     result = part_1 * exp_value
     return result
 
-# def kme_double_RBF_Gaussian(mu, Sigma, l):
-#     """
-#     The implementation of the initial of the RBF kernel with Gaussian distribution.
 
-#     Args:
-#         mu: Gaussian mean, (D, )
-#         Sigma: Gaussian covariance, (D, D)
-#         l: scalar
+def kme_RBF_uniform_func(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the RBF kernel with Uniform distribution.
+    Not vectorized.
 
-#     Returns:
-#         initial error: scalar
-#     """
-#     l_ = l ** 2
-#     D = mu.shape[0]
-#     Lambda = jnp.eye(D) * l_
-#     Lambda_inv = jnp.eye(D) / l_
-#     part1 = jnp.linalg.det(jnp.eye(D) + Sigma @ Lambda_inv)
-#     part2 = jnp.linalg.det(jnp.eye(D) + Sigma @ jnp.linalg.inv(Lambda + Sigma))
-#     return part1 ** (-0.5) * part2 ** (-0.5)
+    Args:
+        a: float (lower bound)
+        b: float (upper bound)
+        l: float
+        y: float
 
+    Returns:
+        kernel mean embedding: scalar
+    """
+    part1 = jnp.sqrt(jnp.pi / 2) * l / (b - a)
+    part2 = jax.scipy.special.erf((b - y) / (l * jnp.sqrt(2))) - jax.scipy.special.erf((a - y) / (l * jnp.sqrt(2)))
+    return part1 * part2
+
+def kme_RBF_uniform_func_dim(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the RBF kernel with Uniform distribution.
+    Not vectorized.
+
+    Args:
+        a: (D,)
+        b: (D,)
+        l: float
+        y: (D,)
+
+    Returns:
+        kernel mean embedding: scalar
+    """
+    kme_RBF_uniform_func_ = partial(kme_RBF_uniform_func, l=l)
+    kme_RBF_uniform_vmap_func = jax.vmap(kme_RBF_uniform_func_)
+    kme_all_d = kme_RBF_uniform_vmap_func(a=a, b=b, y=y)
+    return jnp.prod(kme_all_d)
+
+def kme_RBF_uniform(a, b, l, y):
+    """
+    The implementation of the kernel mean embedding of the RBF kernel with Gaussian distribution
+    A fully vectorized implementation.
+
+    Args:
+        a: (D,)
+        b: (D,)
+        l: float
+        y: (M, D)
+
+    Returns:
+        kernel mean embedding: (M, )
+    """
+    kme_RBF_uniform_func_ = partial(kme_RBF_uniform_func_dim, a=a, b=b, l=l)
+    kme_RBF_uniform_vmap_func = jax.vmap(kme_RBF_uniform_func_)
+    kme_all_d = kme_RBF_uniform_vmap_func(y=y)
+    return kme_all_d

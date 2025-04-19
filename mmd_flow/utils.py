@@ -26,15 +26,7 @@ plt.rc('figure', figsize=(6, 4))
 def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, save_path):
     T = trajectory.shape[0]
     Y = trajectory[0, :, :]
-    mmd_divergence = mmd_fixed_target(args, kernel, distribution)
-    mmd_distance = jax.vmap(mmd_divergence)(trajectory[::rate, :, :])
 
-    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-    axs[0].plot(mmd_distance, label='mmd')
-    axs[0].set_yscale('log')
-    axs[0].set_xlabel('Iteration')
-    axs[0].set_ylabel('MMD distance')
-    plt.savefig(f'{args.save_path}/distance.png')
     jnp.save(f'{args.save_path}/Ys.npy', trajectory[::rate, :, :])
 
     num_timesteps = trajectory.shape[0]
@@ -49,18 +41,18 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     # animate_fig.patch.set_alpha(0.)
     # plt.axis('off')
     # animate_ax.scatter(trajectory.Ys[:, 0], trajectory.Ys[:, 1], label='source')
-    animate_ax.set_xlim(-10, 10)
-    animate_ax.set_ylim(-10, 10)
-    x_range = (-5, 5)
-    y_range = (-5, 5)
+    animate_ax.set_xlim(-1.5, 1.5)
+    animate_ax.set_ylim(-1.5, 1.5)
+    x_range = (-1.5, 1.5)
+    y_range = (-1.5, 1.5)
     resolution = 100
     x_vals = jnp.linspace(x_range[0], x_range[1], resolution)
     y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
     X, Y = jnp.meshgrid(x_vals, y_vals)
     grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
-    logpdf = jnp.log(distribution.pdf(grid).reshape(resolution, resolution))
-    contour = animate_ax.contourf(X, Y, logpdf, levels=20, cmap='viridis')
-    plt.colorbar(contour, ax=animate_ax, label="Log PDF")
+    pdf = distribution.pdf(grid).reshape(resolution, resolution)
+    contour = animate_ax.contourf(X, Y, pdf, levels=20, cmap='viridis')
+    plt.colorbar(contour, ax=animate_ax, label="PDF")
 
     _animate_scatter = animate_ax.scatter(trajectory[0, :, 1], trajectory[0, :, 0], label='source')
 

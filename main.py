@@ -6,7 +6,7 @@ import numpy as np
 import sys
 import pwd
 import argparse
-from mmd_flow.distributions import Distribution, Empirical_Distribution
+from mmd_flow.distributions import Distribution, Empirical_Distribution, Cross
 from mmd_flow.kernels import gaussian_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
@@ -83,22 +83,34 @@ def main(args):
         d = data.shape[1]
         distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
         Y = jax.random.normal(rng_key, shape=(N, d)) / 3. + 0.0
+    elif args.dataset == 'cross':
+        k = 3
+        w = 0.2
+        h = 1.0
+        skip = 1.5
+        distribution = Cross(kernel=kernel, w=w, h=h, k=k, skip=skip)
+        d = 2
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. # initial particles
+
     else:
         raise ValueError('Dataset not recognized!')
     
     divergence = mmd_fixed_target(args, kernel, distribution)
-    save_trajectory = False
+    if args.dataset == 'cross':
+        save_trajectory = True
+    else:
+        save_trajectory = False
     if save_trajectory:
         info_dict, trajectory = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
         mmd_flow_samples = trajectory[-1, :, :]
-        print(trajectory.shape)
         jnp.save(f'{args.save_path}/Ys.npy', trajectory)
         # rate = int(args.step_num // 200)
-        # if d == 2:
-        #     # Save the animation
-        #     mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-        # else:
-        #     pass
+        if d == 2 and args.dataset == 'cross':
+            # Save the animation
+            rate = int(args.step_num // 200)
+            mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+        else:
+            pass
     else:
         info_dict, mmd_flow_samples = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
 

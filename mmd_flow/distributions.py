@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import jax
 import scipy
+from functools import partial
 
 class Distribution:
     def __init__(self, kernel, means, covariances, integrand_name, weights=None):
@@ -33,9 +34,6 @@ class Distribution:
             assert jnp.isclose(self.weights.sum(), 1), "Weights must sum to 1."
 
     def mean_embedding(self, Y):
-        # kme = jnp.zeros(len(Y))
-        # for i in range(self.k):
-        #     kme += self.weights[i] * self.kernel.mean_embedding(Y, self.means[i], self.covariances[i])
         # Vectorized computation using vmap
         kme_values = jax.vmap(self.kernel.mean_embedding, in_axes=(None, 0, 0))(Y, self.means, self.covariances)
         kme = jnp.tensordot(self.weights, kme_values, axes=1)
@@ -204,3 +202,87 @@ class Empirical_Distribution:
         elif self.integrand_name == 'neg_exp':
             integral = jnp.exp(-(self.samples**2).sum(1)).mean()
         return integral
+    
+
+class Cross:
+    def __init__(self, kernel, w, h, k, skip):
+        """
+        A class that takes cross distribution.
+
+        Parameters:
+        - kernel: the kernel
+        """
+        self.kernel = kernel
+        self.w = w
+        self.h = h
+        self.k = k
+        assert k % 2 == 1 # k must be odd numbers
+        self.skip = skip
+        area_overlap = w * w
+        area_vertical_only = w * h - area_overlap
+        area_horizontal_only = w * h - area_overlap
+        self.area_total = area_vertical_only + area_horizontal_only + area_overlap
+        self.integrand = lambda x: 0
+
+    def mean_embedding(self, Y):
+        kme_1 = self.kernel.mean_embedding_uniform(jnp.array([-self.w/2, -self.h/2]), jnp.array([self.w/2, self.h/2]), Y)
+        kme_2 = self.kernel.mean_embedding_uniform(jnp.array([-self.h/2, -self.w/2]), jnp.array([-self.w/2, self.w/2]), Y)
+        kme_3 = self.kernel.mean_embedding_uniform(jnp.array([self.w/2, -self.w/2]), jnp.array([self.h/2, self.w/2]), Y)
+        final_kme = kme_1 * self.w * self.h / self.area_total + kme_2 * (self.w * self.h - self.w * self.w) / 2 / self.area_total + kme_3 * (self.w * self.h - self.w * self.w) / 2 / self.area_total
+        return final_kme
+    
+    def sample(self, sample_size, rng_key):
+        """
+        Sample i.i.d from the Cross distribution.
+
+        Parameters:
+        - sample_size: int, the number of samples to draw.
+        - rng_key: JAX PRNGKey for reproducibility.
+
+        Returns:
+        - samples: (sample_size, d) array of samples.
+        """
+        rng_key, _ = jax.random.split(rng_key)
+        minval_all = jnp.array([[-self.w/2, -self.h/2], 
+                             [-self.h/2, -self.w/2], 
+                             [self.w/2, -self.w/2]])
+        maxval_all = jnp.array([[self.w/2, self.h/2], 
+                             [-self.w/2, self.w/2],
+                             [self.h/2, self.w/2]])
+        weights = jnp.array([self.w * self.h / self.area_total, 
+                             (self.w * self.h - self.w * self.w) / 2 / self.area_total, 
+                             (self.w * self.h - self.w * self.w) / 2 / self.area_total])
+        component_indices = jax.random.choice(rng_key, 3, shape=(sample_size,), p=weights)
+
+        minvals = minval_all[component_indices, :]
+        maxvals = maxval_all[component_indices, :]
+
+        def sample_uniform(minval, maxval, key):
+            return jax.random.uniform(key, shape=(2,), minval=minval, maxval=maxval)
+
+        subkeys = jax.random.split(rng_key, sample_size)
+        samples = jax.vmap(sample_uniform)(minvals, maxvals, subkeys)
+        return samples
+
+    def pdf(self, Y):
+        """
+        Compute the probability density function of the Cross distribution.
+        It is essentially a uniform distribution over the cross shape.
+
+        Parameters:
+        - Y: (n, d) array of points to evaluate the PDF at.
+
+        Returns:
+        - pdf: (n,) array of PDF values.
+        """
+        x, y = Y[:, 0], Y[:, 1]
+        in_vertical = (jnp.abs(x) <= self.w / 2) & (jnp.abs(y) <= self.h / 2)
+        in_horizontal = (jnp.abs(x) <= self.h / 2) & (jnp.abs(y) <= self.w / 2)
+        in_cross = in_vertical | in_horizontal
+
+        pdf_values = jnp.where(in_cross, 1.0 / self.area_total, 0.0)
+        return pdf_values
+    
+    def integral(self):
+        return 0.0
+    
