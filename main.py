@@ -77,7 +77,12 @@ def main(args):
         data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
         d = data.shape[1]
         distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
-        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 3. + 0.0 # initial particles
+    elif args.dataset == 'elevator':
+        data = np.genfromtxt('data/elevator.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 3. + 0.0
     else:
         raise ValueError('Dataset not recognized!')
     
@@ -86,13 +91,14 @@ def main(args):
     if save_trajectory:
         info_dict, trajectory = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
         mmd_flow_samples = trajectory[-1, :, :]
-        
-        rate = int(args.step_num // 200)
-        if d == 2:
-            # Save the animation
-            mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
-        else:
-            pass
+        print(trajectory.shape)
+        jnp.save(f'{args.save_path}/Ys.npy', trajectory)
+        # rate = int(args.step_num // 200)
+        # if d == 2:
+        #     # Save the animation
+        #     mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
+        # else:
+        #     pass
     else:
         info_dict, mmd_flow_samples = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
 
