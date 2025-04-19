@@ -3,3 +3,5 @@ __pycache__/
 /results
 /CuratedDatasets.jl
 /data
+./plotting_notebooks/
+./debugging_notebooks/
