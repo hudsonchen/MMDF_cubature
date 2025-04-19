@@ -113,6 +113,10 @@ def main(args):
         data = np.genfromtxt('data/house_8L.csv', delimiter=',', skip_header=1)[:,:-1]
         d = data.shape[1]
         distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
+    elif args.dataset == 'elevators':
+        data = np.genfromtxt('data/elevators.csv', delimiter=',', skip_header=1)[:,:-1]
+        d = data.shape[1]
+        distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
     else:
         raise ValueError('Dataset not recognized!')
     
