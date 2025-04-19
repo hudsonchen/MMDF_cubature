@@ -15,7 +15,7 @@
 # done
 
 
-for seed in 0 1
+for seed in {2..9}
 do
   for particle_num in 10 30 100
   do
