@@ -1,6 +1,8 @@
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import matplotlib.cm as cm
+import matplotlib
 import jax
 import jax.numpy as jnp
 from mmd_flow.distributions import Distribution
@@ -41,18 +43,21 @@ def save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, sav
     # animate_fig.patch.set_alpha(0.)
     # plt.axis('off')
     # animate_ax.scatter(trajectory.Ys[:, 0], trajectory.Ys[:, 1], label='source')
-    animate_ax.set_xlim(-1.5, 1.5)
-    animate_ax.set_ylim(-1.5, 1.5)
-    x_range = (-1.5, 1.5)
-    y_range = (-1.5, 1.5)
+    animate_ax.set_xlim(-3, 3)
+    animate_ax.set_ylim(-1.5, 3)
+    x_range = (-3, 3)
+    y_range = (-1.5, 3)
     resolution = 100
     x_vals = jnp.linspace(x_range[0], x_range[1], resolution)
     y_vals = jnp.linspace(y_range[0], y_range[1], resolution)
     X, Y = jnp.meshgrid(x_vals, y_vals)
     grid = jnp.stack([X.ravel(), Y.ravel()], axis=1)
     pdf = distribution.pdf(grid).reshape(resolution, resolution)
-    contour = animate_ax.contourf(X, Y, pdf, levels=20, cmap='viridis')
-    plt.colorbar(contour, ax=animate_ax, label="PDF")
+    
+    reds = cm.get_cmap('Reds', 256).copy()
+    reds = matplotlib.colors.ListedColormap(reds(jnp.linspace(0.1, 0.3, 256)))  # lighter range
+    reds.set_bad(color='white')
+    plt.imshow(pdf, extent=(-3, 3, -1.5, 3), origin='lower', cmap=reds)
 
     _animate_scatter = animate_ax.scatter(trajectory[0, :, 1], trajectory[0, :, 0], label='source')
 

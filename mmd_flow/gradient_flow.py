@@ -35,7 +35,7 @@ def gradient_flow(
             first_variation = divergence.get_first_variation(Y)
             velocity_field = jax.vmap(grad(first_variation))
             u = jax.random.normal(rng_key, shape=Y.shape)
-            beta = args.inject_noise_scale * jnp.sqrt(1 / (i / 100 + 1))
+            beta = args.inject_noise_scale * scale(jnp.squeeze(i))
             updates, new_opt_state = optimizer.update(velocity_field(Y + beta * u), opt_state)
             Y_next = optax.apply_updates(Y, updates)
 
@@ -54,6 +54,12 @@ def gradient_flow(
                 rng_key, _ = random.split(rng_key)
         return info_dict, Y
     else:
+        def scale(i):
+            # return 0.
+            # return jnp.where(i > 1000, 0.0, jnp.sqrt(1.0 / (i + 1)))
+            return jnp.sqrt(1.0 / (i + 1))
+        
+
         @scan_tqdm(step_num)
         def one_step_save_trajectory(dummy, i: Array):
             opt_state, rng_key, Y = dummy
@@ -62,7 +68,7 @@ def gradient_flow(
             first_variation = divergence.get_first_variation(Y)
             velocity_field = jax.vmap(grad(first_variation))
             u = jax.random.normal(rng_key, shape=Y.shape)
-            beta = args.inject_noise_scale * jnp.sqrt(1 / (i / 100 + 1))
+            beta = args.inject_noise_scale * scale(jnp.squeeze(i))
             updates, new_opt_state = optimizer.update(velocity_field(Y + beta * u), opt_state)
             Y_next = optax.apply_updates(Y, updates)
 

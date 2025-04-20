@@ -84,13 +84,13 @@ def main(args):
         distribution = Empirical_Distribution(kernel=kernel, samples=data, integrand_name=args.integrand)
         Y = jax.random.normal(rng_key, shape=(N, d)) / 3. + 0.0
     elif args.dataset == 'cross':
-        k = 3
+        k = 2
         w = 0.2
         h = 1.0
         skip = 1.5
         distribution = Cross(kernel=kernel, w=w, h=h, k=k, skip=skip)
         d = 2
-        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. # initial particles
+        Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + jnp.array([[-0.75, 0.75]]) # initial particles
 
     else:
         raise ValueError('Dataset not recognized!')
@@ -107,7 +107,7 @@ def main(args):
         # rate = int(args.step_num // 200)
         if d == 2 and args.dataset == 'cross':
             # Save the animation
-            rate = int(args.step_num // 200)
+            rate = 10
             mmd_flow.utils.save_animation_2d(args, trajectory, kernel, distribution, rate, rng_key, args.save_path)
         else:
             pass

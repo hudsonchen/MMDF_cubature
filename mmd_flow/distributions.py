@@ -216,19 +216,33 @@ class Cross:
         self.w = w
         self.h = h
         self.k = k
-        assert k % 2 == 1 # k must be odd numbers
         self.skip = skip
         area_overlap = w * w
         area_vertical_only = w * h - area_overlap
         area_horizontal_only = w * h - area_overlap
-        self.area_total = area_vertical_only + area_horizontal_only + area_overlap
+        self.area_total = (area_vertical_only + area_horizontal_only + area_overlap) * self.k * 2
         self.integrand = lambda x: 0
 
     def mean_embedding(self, Y):
-        kme_1 = self.kernel.mean_embedding_uniform(jnp.array([-self.w/2, -self.h/2]), jnp.array([self.w/2, self.h/2]), Y)
-        kme_2 = self.kernel.mean_embedding_uniform(jnp.array([-self.h/2, -self.w/2]), jnp.array([-self.w/2, self.w/2]), Y)
-        kme_3 = self.kernel.mean_embedding_uniform(jnp.array([self.w/2, -self.w/2]), jnp.array([self.h/2, self.w/2]), Y)
-        final_kme = kme_1 * self.w * self.h / self.area_total + kme_2 * (self.w * self.h - self.w * self.w) / 2 / self.area_total + kme_3 * (self.w * self.h - self.w * self.w) / 2 / self.area_total
+        final_kme = jnp.zeros(Y.shape[0])
+        for i in range(-1, self.k-1, 1):
+            kme_1 = self.kernel.mean_embedding_uniform(jnp.array([-self.w/2 + self.skip * i, -self.h/2]), 
+                                                       jnp.array([self.w/2 + self.skip * i, self.h/2]), Y)
+            kme_1 += self.kernel.mean_embedding_uniform(jnp.array([-self.w/2 + self.skip * i, -self.h/2 + self.skip]), 
+                                                       jnp.array([self.w/2 + self.skip * i, self.h/2 + self.skip]), Y)
+            
+            kme_2 = self.kernel.mean_embedding_uniform(jnp.array([-self.h/2 + self.skip * i, -self.w/2]), 
+                                                       jnp.array([-self.w/2 + self.skip * i, self.w/2]), Y)
+            kme_2 += self.kernel.mean_embedding_uniform(jnp.array([-self.h/2 + self.skip * i, -self.w/2 + self.skip]),
+                                                       jnp.array([-self.w/2 + self.skip * i, self.w/2 + self.skip]), Y)
+            
+            kme_3 = self.kernel.mean_embedding_uniform(jnp.array([self.w/2 + self.skip * i, -self.w/2]), 
+                                                       jnp.array([self.h/2 + self.skip * i, self.w/2]), Y)
+            kme_3 += self.kernel.mean_embedding_uniform(jnp.array([self.w/2 + self.skip * i, -self.w/2 + self.skip]),
+                                                         jnp.array([self.h/2 + self.skip * i, self.w/2 + self.skip]), Y)
+            final_kme += kme_1 * self.w * self.h / self.area_total * 2
+            final_kme += kme_2 * (self.w * self.h - self.w * self.w) / 2 / self.area_total * 2
+            final_kme += kme_3 * (self.w * self.h - self.w * self.w) / 2 / self.area_total * 2
         return final_kme
     
     def sample(self, sample_size, rng_key):
@@ -243,16 +257,33 @@ class Cross:
         - samples: (sample_size, d) array of samples.
         """
         rng_key, _ = jax.random.split(rng_key)
-        minval_all = jnp.array([[-self.w/2, -self.h/2], 
-                             [-self.h/2, -self.w/2], 
-                             [self.w/2, -self.w/2]])
-        maxval_all = jnp.array([[self.w/2, self.h/2], 
-                             [-self.w/2, self.w/2],
-                             [self.h/2, self.w/2]])
-        weights = jnp.array([self.w * self.h / self.area_total, 
+        minval_all = jnp.zeros((3 * self.k * 2, 2))
+        maxval_all = jnp.zeros((3 * self.k * 2, 2))
+        weights = jnp.zeros((3 * self.k * 2, ))
+        for i in range(0, self.k, 1):
+            loc = i - 1
+            minval_all = minval_all.at[3*i: 3*(i+1), :].set(jnp.array([[-self.w/2 + self.skip * loc, -self.h/2], 
+                                [-self.h/2 + self.skip * loc, -self.w/2], 
+                                [self.w/2 + self.skip * loc, -self.w/2]]))
+            minval_all = minval_all.at[3*(i+self.k): 3*(i+1+self.k), :].set(jnp.array([[-self.w/2 + self.skip * loc, -self.h/2 + self.skip], 
+                                [-self.h/2 + self.skip * loc, -self.w/2 + self.skip], 
+                                [self.w/2 + self.skip * loc, -self.w/2 + self.skip]]))
+            
+            maxval_all = maxval_all.at[3*i: 3*(i+1), :].set(jnp.array([[self.w/2 + self.skip * loc, self.h/2], 
+                                [-self.w/2 + self.skip * loc, self.w/2],
+                                [self.h/2 + self.skip * loc, self.w/2]]))
+            maxval_all = maxval_all.at[3*(i+self.k): 3*(i+1+self.k), :].set(jnp.array([[self.w/2 + self.skip * loc, self.h/2 + self.skip], 
+                                [-self.w/2 + self.skip * loc, self.w/2 + self.skip],
+                                [self.h/2 + self.skip * loc, self.w/2 + self.skip]]))
+            
+            weights = weights.at[3*i: 3*(i+1)].set(jnp.array([self.w * self.h / self.area_total, 
                              (self.w * self.h - self.w * self.w) / 2 / self.area_total, 
-                             (self.w * self.h - self.w * self.w) / 2 / self.area_total])
-        component_indices = jax.random.choice(rng_key, 3, shape=(sample_size,), p=weights)
+                             (self.w * self.h - self.w * self.w) / 2 / self.area_total]))
+            weights = weights.at[3*(i+self.k): 3*(i+1+self.k)].set(jnp.array([self.w * self.h / self.area_total, 
+                             (self.w * self.h - self.w * self.w) / 2 / self.area_total, 
+                             (self.w * self.h - self.w * self.w) / 2 / self.area_total]))
+            
+        component_indices = jax.random.choice(rng_key, 3 * self.k * 2, shape=(sample_size,), p=weights)
 
         minvals = minval_all[component_indices, :]
         maxvals = maxval_all[component_indices, :]
@@ -276,11 +307,16 @@ class Cross:
         - pdf: (n,) array of PDF values.
         """
         x, y = Y[:, 0], Y[:, 1]
-        in_vertical = (jnp.abs(x) <= self.w / 2) & (jnp.abs(y) <= self.h / 2)
-        in_horizontal = (jnp.abs(x) <= self.h / 2) & (jnp.abs(y) <= self.w / 2)
-        in_cross = in_vertical | in_horizontal
+        in_cross_all = jnp.zeros((Y.shape[0], self.k))
+        for i in range(-1, self.k-1, 1):
+            in_vertical = (jnp.abs(x - self.skip * i) <= self.w / 2) & (jnp.abs(y) <= self.h / 2)
+            in_horizontal = (jnp.abs(x - self.skip * i) <= self.h / 2) & (jnp.abs(y) <= self.w / 2)
 
-        pdf_values = jnp.where(in_cross, 1.0 / self.area_total, 0.0)
+            in_vertical_ = (jnp.abs(x - self.skip * i) <= self.w / 2) & (jnp.abs(y - self.skip) <= self.h / 2)
+            in_horizontal_ = (jnp.abs(x - self.skip * i) <= self.h / 2) & (jnp.abs(y - self.skip) <= self.w / 2)
+            in_cross_all = in_cross_all.at[:, i].set(in_vertical | in_horizontal | in_vertical_ | in_horizontal_)
+
+        pdf_values = jnp.where(jnp.any(in_cross_all, axis=1), 1.0, jnp.nan)
         return pdf_values
     
     def integral(self):
