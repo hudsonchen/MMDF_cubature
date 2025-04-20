@@ -1,4 +1,4 @@
-for seed in {2..50}
+for seed in {0..2}
 do
   for particle_num in 10 30 100 300 1000
   do
