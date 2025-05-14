@@ -60,46 +60,32 @@ class gaussian_kernel():
         """
         return kme_RBF_uniform(a, b, self.sigma, X)
     
-# class laplace_kernel(base_kernel):
-#     sigma: float
+class laplace_kernel():
+    def __init__(self, sigma: float):
+        self.sigma = sigma
 
-#     def __call__(self, x: Array, y: Array) -> Array:
-#         return jnp.exp(-jnp.sum(jnp.abs(_rescale(x - y, self.sigma))))
+    def __call__(self, x: Array, y: Array) -> Array:
+        return jnp.exp(-jnp.sum(jnp.abs(_rescale(x - y, self.sigma))))
+    
+    def make_distance_matrix(self, X: Array, Y: Array) -> Array:
+        return vmap(vmap(type(self).__call__, (None, None, 0)), (None, 0, None))(
+            self, X, Y
+        )
 
-# class imq_kernel(base_kernel):
-#     sigma: float
-#     c: float = 1.0
-#     beta: float = -0.5
+class matern_32_kernel:
+    def __init__(self, sigma: float):
+        self.sigma = sigma
 
-#     def __call__(self, x: Array, y: Array) -> Array:
-#         return jnp.power(
-#             self.c**2 + _l2_norm_squared(_rescale(x - y, self.sigma)), self.beta
-#         )
+    def __call__(self, x: Array, y: Array) -> Array:
+        r = jnp.sqrt(jnp.sum(jnp.square(_rescale(x - y, self.sigma))))
+        sqrt3_r = jnp.sqrt(3.0) * r
+        return (1.0 + sqrt3_r) * jnp.exp(-sqrt3_r)
 
-
-# class negative_distance_kernel(base_kernel):
-#     sigma: float
-
-#     def __call__(self, x: Array, y: Array) -> Array:
-#         return -_l2_norm_squared(_rescale(x - y, self.sigma))
-
-
-# class energy_kernel(base_kernel):
-#     # x0: Array
-#     beta: float
-#     sigma: float
-#     eps: float = 1e-8
-
-#     def __call__(self, x: Array, y: Array) -> Array:
-#         x0 = jnp.zeros_like(x)
-
-#         pxx0 = jnp.power(_l2_norm_squared(_rescale(x - x0, self.sigma)) + self.eps, self.beta / 2)
-#         pyx0 = jnp.power(_l2_norm_squared(_rescale(y - x0, self.sigma)) + self.eps, self.beta / 2)
-#         pxy = jnp.power(_l2_norm_squared(_rescale(x - y, self.sigma)) + self.eps, self.beta / 2)
-
-#         ret = 0.5 * (pxx0 + pyx0 - pxy)
-#         return ret
-
+    
+    def make_distance_matrix(self, X: Array, Y: Array) -> Array:
+        return vmap(vmap(type(self).__call__, (None, None, 0)), (None, 0, None))(
+            self, X, Y
+        )
 
 @jax.jit
 def kme_RBF_Gaussian_func(mu, Sigma, l, y):

@@ -26,6 +26,11 @@ def gradient_flow(
     else:
         step_num = int(threshold)
 
+    def scale(i):
+        # return 0.
+        # return jnp.where(i > 1000, 0.0, jnp.sqrt(1.0 / (i + 1)))
+        return jnp.sqrt(1.0 / (i + 1))
+    
     if not save:
         @scan_tqdm(step_num)
         def one_step(dummy, i: Array):
@@ -54,12 +59,6 @@ def gradient_flow(
                 rng_key, _ = random.split(rng_key)
         return info_dict, Y
     else:
-        def scale(i):
-            # return 0.
-            # return jnp.where(i > 1000, 0.0, jnp.sqrt(1.0 / (i + 1)))
-            return jnp.sqrt(1.0 / (i + 1))
-        
-
         @scan_tqdm(step_num)
         def one_step_save_trajectory(dummy, i: Array):
             opt_state, rng_key, Y = dummy

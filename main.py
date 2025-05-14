@@ -7,7 +7,7 @@ import sys
 import pwd
 import argparse
 from mmd_flow.distributions import Distribution, Empirical_Distribution, Cross
-from mmd_flow.kernels import gaussian_kernel
+from mmd_flow.kernels import gaussian_kernel, laplace_kernel, matern_32_kernel
 from mmd_flow.mmd import mmd_fixed_target
 from mmd_flow.gradient_flow import gradient_flow
 import mmd_flow.utils
@@ -59,7 +59,15 @@ def create_dir(args):
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
     N = args.particle_num
-    kernel = gaussian_kernel(args.bandwidth)
+    if args.kernel == 'Gaussian':
+        kernel = gaussian_kernel(args.bandwidth)
+    elif args.kernel == 'Laplace':
+        kernel = laplace_kernel(args.bandwidth)
+    elif args.kernel == 'Matern_32':
+        kernel = matern_32_kernel(args.bandwidth)
+    else:
+        raise ValueError('Kernel not recognized!')
+    
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
@@ -100,6 +108,7 @@ def main(args):
         save_trajectory = True
     else:
         save_trajectory = False
+    save_trajectory = True
     if save_trajectory:
         info_dict, trajectory = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
         mmd_flow_samples = trajectory[-1, :, :]
