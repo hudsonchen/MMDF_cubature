@@ -67,6 +67,12 @@ def kernel_eval(x, y, params_k):
         scale = -.5/params_k["var"]
         return(np.exp(scale*k_vals))
     
+    elif params_k["name"] == "matern32":
+        ell = np.sqrt(params_k["var"])
+        dists = np.sqrt(np.sum((x - y)**2, axis=1))
+        sqrt3_r = np.sqrt(3) * dists / ell
+        return (1.0 + sqrt3_r) * np.exp(-sqrt3_r)
+    
     raise ValueError("Unrecognized kernel name {}".format(params_k["name"]))
 
 
@@ -97,8 +103,14 @@ def main(args):
 
     d = int(2)
     var = jnp.square(float(args.bandwidth))
-    params_k_swap = {"name": "gauss", "var": var, "d": int(d)}
-    params_k_split = {"name": "gauss_rt", "var": var/2., "d": int(d)}
+    if args.kernel == 'Gaussian':
+        params_k_swap = {"name": "gauss", "var": var, "d": int(d)}
+        params_k_split = {"name": "gauss_rt", "var": var/2., "d": int(d)}
+    elif args.kernel == 'Matern_32':
+        params_k_swap = {"name": "matern32", "var": var, "d": int(d)}
+        params_k_split = {"name": "matern32", "var": var/2., "d": int(d)}
+    else:
+        raise ValueError('Kernel not recognized!')
     split_kernel = partial(kernel_eval, params_k=params_k_split)
     swap_kernel = partial(kernel_eval, params_k=params_k_swap)
     delta = .5

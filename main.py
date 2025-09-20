@@ -31,6 +31,7 @@ def get_config():
 
     # Args settings
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--d', type=int, default=2)
     parser.add_argument('--dataset', type=str, default='Gaussian')
     parser.add_argument('--kernel', type=str, default='Gaussian')
     parser.add_argument('--step_size', type=float, default=0.1) # Step size will be rescaled by lmbda, the actual step size = step size * lmbda
@@ -47,7 +48,7 @@ def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
     args.save_path += f"mmd_flow/{args.dataset}_dataset/{args.kernel}_kernel/"
-    args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
+    args.save_path += f"__step_size_{round(args.step_size, 8)}__dim_{args.d}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
     args.save_path += f"__particle_num_{args.particle_num}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
@@ -74,10 +75,29 @@ def main(args):
         d = 2
         Y = jax.random.normal(rng_key, shape=(N, d)) + 1. # initial particles
     elif args.dataset == 'mog':
-        covariances = jnp.load('data/mog_covs.npy')
-        means = jnp.load('data/mog_means.npy')
-        k = 20
-        d = 2
+        if args.d == 2:
+            covariances = jnp.load('data/mog_covs.npy')
+            means = jnp.load('data/mog_means.npy')
+            k = 20
+            d = 2
+        else:
+            d = args.d
+            k = 20
+            rng_key, _ = jax.random.split(rng_key)
+            means = jax.random.normal(rng_key, shape=(k, d))
+            for _ in range(3):  # a few iterations to separate a bit
+                for i in range(k):
+                    diff = means[i] - means  # (k, d)
+                    dist_sq = jnp.sum(diff**2, axis=1, keepdims=True) + 1e-4
+                    repulsion = jnp.sum(diff / dist_sq, axis=0)  # repel from others
+                    means = means.at[i].add(100. * repulsion / k)
+            
+            covariances = jnp.zeros((k, d, d))
+            for i in range(k):
+                rng_key, _ = jax.random.split(rng_key)
+                A = jax.random.normal(rng_key, shape=(d, d))
+                cov = jnp.dot(A, A.T) + d * jnp.eye(d)  # Ensures positive definiteness
+                covariances = covariances.at[i, :, :].set(cov)
         weights = jnp.ones(k) / k
         distribution = Distribution(kernel=kernel, means=means, covariances=covariances, integrand_name=args.integrand, weights=weights)
         Y = jax.random.normal(rng_key, shape=(N, d)) / 10. + 0.0 # initial particles
@@ -108,7 +128,7 @@ def main(args):
         save_trajectory = True
     else:
         save_trajectory = False
-    save_trajectory = True
+
     if save_trajectory:
         info_dict, trajectory = gradient_flow(divergence, rng_key, Y, save_trajectory, args)
         mmd_flow_samples = trajectory[-1, :, :]

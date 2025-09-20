@@ -22,7 +22,7 @@ class Distribution:
         if integrand_name == 'square':
             self.integrand = lambda x: (x**2).sum(1)
         elif integrand_name == 'neg_exp':
-            self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
+            self.integrand = lambda x: jnp.exp(-(x**2).sum(1) / (self.d ** 2 / 2))
         else:
             raise ValueError('Function not recognized!')
         
@@ -124,16 +124,27 @@ class Distribution:
         if self.integrand_name == 'square':
             integral = 0
             for i in range(self.k):
-                integral += self.weights[i] * (jnp.trace(self.covariances[i]) + jnp.linalg.norm(self.means[i])**2)
+                integral += self.weights[i] * (jnp.trace(self.covariances[i, :, :]) + jnp.linalg.norm(self.means[i])**2)
         elif self.integrand_name == 'neg_exp':
             integral = 0
             for i in range(self.k):
-                cov_inv = jnp.linalg.inv(self.covariances[i])
-                temp = jnp.exp(0.5 * (self.means[i].T @ cov_inv @ jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d)) @ cov_inv @ self.means[i]))
-                temp *= jnp.exp(-0.5 * self.means[i].T @ cov_inv @ self.means[i])
-                temp * jnp.sqrt(jnp.linalg.det(2 * self.covariances[i] + jnp.eye(self.d)))
-                cov_new = jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d))
-                integral += self.weights[i] * temp * jnp.sqrt(jnp.linalg.det(cov_inv)) * jnp.sqrt(jnp.linalg.det(cov_new))
+        #         cov_inv = jnp.linalg.inv(self.covariances[i, :, :])
+        #         temp = jnp.exp(0.5 * (self.means[i].T @ cov_inv @ jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d)) @ cov_inv @ self.means[i]))
+        #         temp *= jnp.exp(-0.5 * self.means[i].T @ cov_inv @ self.means[i])
+        #         temp *= jnp.sqrt(jnp.linalg.det(2 * self.covariances[i, :, :] + jnp.eye(self.d)))
+        #         cov_new = jnp.linalg.inv(cov_inv + 2 * jnp.eye(self.d))
+        #         integral += self.weights[i] * temp * jnp.sqrt(jnp.linalg.det(cov_inv)) * jnp.sqrt(jnp.linalg.det(cov_new))
+                mu = self.means[i]
+                Sigma = self.covariances[i]
+                Sigma_inv = jnp.linalg.inv(Sigma)
+                A = (2 / (self.d ** 2 / 2)) * jnp.eye(self.d) + Sigma_inv
+                A_inv = jnp.linalg.inv(A)
+
+                exponent = 0.5 * mu.T @ Sigma_inv @ A_inv @ Sigma_inv @ mu - 0.5 * mu.T @ Sigma_inv @ mu
+                det_term = jnp.sqrt(jnp.linalg.det(A_inv)) / jnp.sqrt(jnp.linalg.det(Sigma))
+
+                temp = jnp.exp(exponent) * det_term
+                integral += self.weights[i] * temp
         return integral
     
 
@@ -148,7 +159,7 @@ class Empirical_Distribution:
         if integrand_name == 'square':
             self.integrand = lambda x: (x**2).sum(1)
         elif integrand_name == 'neg_exp':
-            self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
+            self.integrand = lambda x: jnp.exp(-(x**2).sum(1) / (self.d ** 2 / 2))
         else:
             raise ValueError('Function not recognized!')
         
@@ -200,7 +211,7 @@ class Empirical_Distribution:
         if self.integrand_name == 'square':
             integral = (self.samples**2).sum(1).mean()
         elif self.integrand_name == 'neg_exp':
-            integral = jnp.exp(-(self.samples**2).sum(1)).mean()
+            integral = jnp.exp(-(self.samples**2).sum(1) / self.d).mean()
         return integral
     
 
