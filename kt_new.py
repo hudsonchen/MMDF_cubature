@@ -11,11 +11,13 @@ from mmd_flow.distributions import Distribution, Empirical_Distribution
 from mmd_flow.kernels import gaussian_kernel
 import mmd_flow.utils
 from goodpoints import kt , compress
+from goodpoints.jax.compress import kt_compresspp
+from goodpoints.jax.sliceable_points import SliceablePoints
 import time
 import pickle
 import matplotlib.pyplot as plt
 jax.config.update("jax_enable_x64", True)
-# jax.config.update("jax_platform_name", "cpu")
+jax.config.update("jax_platform_name", "cpu")
 
 if pwd.getpwuid(os.getuid())[0] == 'zongchen':
     os.chdir('/home/zongchen/mmd_flow_cubature/')
@@ -46,7 +48,7 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"kernel_thinning/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"kernel_thinning_new/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
     args.save_path += f"__particle_num_{2 ** int(args.m)}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
@@ -56,24 +58,24 @@ def create_dir(args):
     return args
 
 
-def kernel_eval(x, y, params_k):
-    """Returns matrix of kernel evaluations kernel(xi, yi) for each row index i.
-    x and y should have the same number of columns, and x should either have the
-    same shape as y or consist of a single row, in which case, x is broadcasted 
-    to have the same shape as y.
-    """
-    if params_k["name"] in ["gauss", "gauss_rt"]:
-        k_vals = np.sum((x-y)**2,axis=1)
-        scale = -.5/params_k["var"]
-        return(np.exp(scale*k_vals))
-    
-    elif params_k["name"] == "matern32":
-        ell = np.sqrt(params_k["var"])
-        dists = np.sqrt(np.sum((x - y)**2, axis=1))
-        sqrt3_r = np.sqrt(3) * dists / ell
-        return (1.0 + sqrt3_r) * np.exp(-sqrt3_r)
-    
-    raise ValueError("Unrecognized kernel name {}".format(params_k["name"]))
+@partial(jax.jit, static_argnames=['distribution'])
+def centered_gaussian_kernel(points_x, points_y, l, distribution):
+    # x = points_x.get("X").squeeze() if len(points_x.get("X").shape) >= 2 else points_x.get("X")
+    # x = jnp.atleast_2d(x)
+    # y = points_y.get("X").squeeze() if len(points_y.get("X").shape) >= 2 else points_y.get("X")
+    # y = jnp.atleast_2d(y)
+    x, y = points_x.get("X"), points_y.get("X")
+    k_xy = jnp.exp(-0.5 * jnp.sum((x - y) ** 2) / (l ** 2))
+    kme_x = distribution.mean_embedding(x)
+    kme_y = distribution.mean_embedding(y)
+    kme_kme = distribution.mean_mean_embedding()
+    return k_xy - kme_x - kme_y + kme_kme
+
+
+def uncentered_matern_32_kernel(x, y, l):
+    dists = np.sqrt(np.sum((x - y)**2, axis=1))
+    sqrt3_r = np.sqrt(3) * dists / l
+    return (1.0 + sqrt3_r) * np.exp(-sqrt3_r)
 
 
 def main(args):
@@ -102,34 +104,23 @@ def main(args):
         raise ValueError('Dataset not recognized!')
 
     d = int(2)
-    var = jnp.square(float(args.bandwidth))
     if args.kernel == 'Gaussian':
-        params_k_swap = {"name": "gauss", "var": var, "d": int(d)}
-        params_k_split = {"name": "gauss_rt", "var": var/2., "d": int(d)}
+        kernel_fn = partial(centered_gaussian_kernel, l=float(args.bandwidth), distribution=distribution)
     elif args.kernel == 'Matern_32':
-        params_k_swap = {"name": "matern32", "var": var, "d": int(d)}
-        params_k_split = {"name": "matern32", "var": var/2., "d": int(d)}
+        kernel_fn = partial(uncentered_matern_32_kernel, l=float(args.bandwidth))
     else:
         raise ValueError('Kernel not recognized!')
-    split_kernel = partial(kernel_eval, params_k=params_k_split)
-    swap_kernel = partial(kernel_eval, params_k=params_k_swap)
-    delta = .5
+
     m = args.m
     n = int(2**(2*m))
     X = distribution.sample(n, rng_key)
     X = np.array(X)
     g = 0
-    size = m
-    halve_prob = delta / ( 4*(4**size)*(2**g)*( g + (2**g) * (size  - g) ) )
-    thin_prob = delta * g / (g + ( (2**g)*(size - g) ))
 
-    thin = partial(kt.thin, m=0, split_kernel = split_kernel, swap_kernel = swap_kernel, delta = thin_prob)
-    halve = compress.symmetrize(lambda x: kt.thin(X = x, m=1, split_kernel = split_kernel, swap_kernel = swap_kernel, 
-                                              unique=True, delta = halve_prob*(len(x)**2)))
-
-    # coresets = kt.thin(X, m, split_kernel, swap_kernel, delta=delta, verbose=True)
-    # coresets = compress.compresspp(X, halve, thin, g)
-    coresets = compress.compresspp_kt(X, kernel_type=b"gaussian", g=g, mean0=False)
+    rng = np.random.default_rng(args.seed)
+    points = SliceablePoints({"X": X}) 
+    coresets = kt_compresspp(kernel_fn, points, w=np.ones(X.shape[0]) / X.shape[0], 
+                             rng_gen=rng, inflate_size=m, g=g)
     kt_samples = X[coresets, :]
 
     true_value = distribution.integral()

@@ -211,7 +211,7 @@ class Empirical_Distribution:
         if self.integrand_name == 'square':
             integral = (self.samples**2).sum(1).mean()
         elif self.integrand_name == 'neg_exp':
-            integral = jnp.exp(-(self.samples**2).sum(1) / self.d).mean()
+            integral = jnp.exp(-(self.samples**2).sum(1) / (self.d ** 2 / 2)).mean()
         return integral
     
 
