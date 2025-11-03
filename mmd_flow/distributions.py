@@ -159,7 +159,7 @@ class Empirical_Distribution:
         if integrand_name == 'square':
             self.integrand = lambda x: (x**2).sum(1)
         elif integrand_name == 'neg_exp':
-            self.integrand = lambda x: jnp.exp(-(x**2).sum(1) / (self.d ** 2 / 2))
+            self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
         else:
             raise ValueError('Function not recognized!')
         
@@ -211,7 +211,7 @@ class Empirical_Distribution:
         if self.integrand_name == 'square':
             integral = (self.samples**2).sum(1).mean()
         elif self.integrand_name == 'neg_exp':
-            integral = jnp.exp(-(self.samples**2).sum(1) / (self.d ** 2 / 2)).mean()
+            integral = jnp.exp(-(self.samples**2).sum(1)).mean()
         return integral
     
 
