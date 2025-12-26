@@ -51,26 +51,12 @@ def create_dir(args):
         pickle.dump(vars(args), handle, protocol=pickle.HIGHEST_PROTOCOL)
     return args
 
-
-def kernel_eval(x, y, params_k):
-    """Returns matrix of kernel evaluations kernel(xi, yi) for each row index i.
-    x and y should have the same number of columns, and x should either have the
-    same shape as y or consist of a single row, in which case, x is broadcasted 
-    to have the same shape as y.
-    """
-    if params_k["name"] in ["gauss", "gauss_rt"]:
-        k_vals = np.sum((x-y)**2,axis=1)
-        scale = -.5/params_k["var"]
-        return(np.exp(scale*k_vals))
-    
-    raise ValueError("Unrecognized kernel name {}".format(params_k["name"]))
-
 class GaussianKernel:
-    def __init__(self, sqd_bandwidth):
+    def __init__(self, distribution):
         '''A Gaussian kernel of the form exp(-.5*||x-y||^2/sqd_bandwidth)
         '''
         # Initialize exponential scale factor
-        self.scale = -.5/sqd_bandwidth
+        self.scale = -.5/distribution.kernel.sigma**2
 
     @partial(jax.jit, static_argnums=(0,))
     def __call__(self, points_x, points_y):
@@ -105,36 +91,10 @@ class GaussianKernelMean0:
                 - self.distribution.mean_embedding(x) 
                 - self.distribution.mean_embedding(y) 
                 + self.mean_mean_embedding)
-        #print(f"success" )
         return val
 
     def prepare_input(self, p):
         return SliceablePoints({'p': p})
-
-class gaussian_kernel_override(gaussian_kernel):
-    # Override kernel mean embedding to handle (M,B,D) and (D,) inputs
-    def mean_embedding(self, X: Array, mu: Array, Sigma: Array) -> Array:
-        """
-        The implementation of the kernel mean embedding of the RBF kernel with Gaussian distribution
-        A fully vectorized implementation.
-
-        Args:
-            mu: Gaussian mean, (D, )
-            Sigma: Gaussian covariance, (D, D)
-            X: (M, D)
-
-        Returns:
-            kernel mean embedding: (M, )
-        """
-        kme_RBF_Gaussian_func_ = partial(kme_RBF_Gaussian_func, mu, Sigma, self.sigma)
-        if X.ndim == 1:
-            # Handle inputs of shape (D,)
-            return kme_RBF_Gaussian_func_(X)
-        kme_RBF_Gaussian_vmap_func = jax.vmap(kme_RBF_Gaussian_func_)
-        if X.ndim == 3:
-            # Add another vmap layer to handle (M, B, D) input
-            return jax.vmap(kme_RBF_Gaussian_vmap_func)(X)
-        return kme_RBF_Gaussian_vmap_func(X)
         
 def main(args):
     # Generate multiple seeds from input seed
@@ -142,8 +102,7 @@ def main(args):
     kt_seed = args.seed
     particle_num = 2 ** int(args.m)
 
-    kernel = gaussian_kernel_override(args.bandwidth)
-    other_integrand = 'square' if args.integrand != 'square' else 'neg_exp'
+    kernel = gaussian_kernel(args.bandwidth)
     if args.dataset == 'gaussian':
         distribution = Distribution(kernel=kernel, means=jnp.array([[0.0, 0.0]]), covariances=jnp.eye(2)[None, :], 
                                     integrand_name=args.integrand, weights=None)
@@ -163,7 +122,7 @@ def main(args):
         raise ValueError('Dataset not recognized!')
 
     # Use Gaussian kernel for KT-split
-    split_kernel = GaussianKernel(kernel.sigma**2) 
+    split_kernel = GaussianKernel(distribution) 
 
     empirical = isinstance(distribution, Empirical_Distribution)
     if empirical:
@@ -191,7 +150,8 @@ def main(args):
         split_points = split_kernel.prepare_input(X)
 
         # Use Gaussian kernel for KT-swap
-        swap_kernel = GaussianKernel(kernel.sigma**2)
+        # Do not use mean-zero kernel for empirical distribution because it is expensive
+        swap_kernel = GaussianKernel(distribution)
         mean_zero = False
         baseline = True
         # Prepare all input points for KT-swap
@@ -205,9 +165,6 @@ def main(args):
         distribution.mean_mean_embedding = lambda : distribution.mean_mean_embedding_val
         print(f'Elapsed: {time.time() - start_time}s')
 
-        # Evaluate second integrand
-        other_distribution = Empirical_Distribution(
-            kernel=kernel, samples=distribution.samples, integrand_name=other_integrand)
     else:
         # Find the smallest power of 2 greater than or equal to particle_num
         nout_pow2 = 2**int(np.ceil(np.log2(particle_num)))
@@ -225,11 +182,7 @@ def main(args):
         baseline = False
         # Prepare all input points for KT-swap
         swap_points = swap_kernel.prepare_input(X)
-
-        # Evaluate second integrand
-        other_distribution = Distribution(
-            kernel=kernel, means=distribution.means, covariances=distribution.covariances, 
-            integrand_name=other_integrand, weights=distribution.weights)        
+     
     divergence = mmd_fixed_target(args, kernel, distribution)
 
     #
@@ -271,36 +224,18 @@ def main(args):
     iid_err = jnp.abs(true_value - iid_estimate)
     kt_estimate = mmd_flow.utils.evaluate_integral(distribution, kt_samples)
     kt_err = jnp.abs(true_value - kt_estimate)
-
-    # Evaluate MMD
     iid_mmd = divergence(iid_samples)
     kt_mmd = divergence(kt_samples)
 
-    # Evaluate single-function integration error for the other integrand
-    true_value_other = other_distribution.integral()
-    iid_estimate_other = mmd_flow.utils.evaluate_integral(other_distribution, iid_samples)
-    iid_err_other = jnp.abs(true_value_other - iid_estimate_other)
-    kt_estimate_other = mmd_flow.utils.evaluate_integral(other_distribution, kt_samples)
-    kt_err_other = jnp.abs(true_value_other - kt_estimate_other)
-
-    print(f'True value {args.integrand}: {true_value}')
-    print(f'IID err {args.integrand}: {iid_err}')
-    print(f'KT err {args.integrand}: {kt_err}\n')
-    print(f'True value {other_integrand}: {true_value_other}')
-    print(f'IID err {other_integrand}: {iid_err_other}')
-    print(f'KT err {other_integrand}: {kt_err_other}\n')
-    print(f'IID MMD: {iid_mmd}')
-    print(f'KT MMD: {kt_mmd}\n')
+    print(f'True value: {true_value}')
+    print(f'IID estimate: {iid_estimate}, IID err: {iid_err}, IID MMD: {iid_mmd}')
+    print(f'KT estimate: {kt_estimate}, KT err: {kt_err}, KT MMD: {kt_mmd}')
     jnp.save(f'{args.save_path}/iid_samples.npy', iid_samples)
     jnp.save(f'{args.save_path}/kt_samples.npy', kt_samples)
     jnp.save(f'{args.save_path}/kt_mmd.npy', kt_mmd)
     jnp.save(f'{args.save_path}/iid_mmd.npy', iid_mmd)
-    jnp.save(f'{args.save_path}/kt_err_{other_integrand}.npy', kt_err_other)
-    jnp.save(f'{args.save_path}/iid_err_{other_integrand}.npy', iid_err_other)
     jnp.save(f'{args.save_path}/kt_err_{args.integrand}.npy', kt_err)
     jnp.save(f'{args.save_path}/iid_err_{args.integrand}.npy', iid_err)
-    # jnp.save(f'{args.save_path}/kt_err.npy', kt_err)
-    # jnp.save(f'{args.save_path}/iid_err.npy', iid_err)
     return
 
 if __name__ == '__main__':
