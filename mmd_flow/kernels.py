@@ -37,8 +37,16 @@ class gaussian_kernel():
             kernel mean embedding: (M, )
         """
         kme_RBF_Gaussian_func_ = partial(kme_RBF_Gaussian_func, mu, Sigma, self.sigma)
-        kme_RBF_Gaussian_vmap_func = jax.vmap(kme_RBF_Gaussian_func_)
-        return kme_RBF_Gaussian_vmap_func(X)
+        if X.ndim == 1:
+            # Handle inputs of shape (D,)
+            return kme_RBF_Gaussian_func_(X)
+        if X.ndim == 2:
+            kme_RBF_Gaussian_vmap_func = jax.vmap(kme_RBF_Gaussian_func_)
+            return kme_RBF_Gaussian_vmap_func(X)
+        if X.ndim == 3:
+            # Add another vmap layer to handle (M, B, D) input
+            kme_RBF_Gaussian_vmap_func = jax.vmap(jax.vmap(kme_RBF_Gaussian_func_))
+            return kme_RBF_Gaussian_vmap_func(X)
     
     def mean_mean_embedding(self, mu1, mu2, Sigma1, Sigma2) -> float:
         return kme_double_RBF_Gaussian(mu1, mu2, Sigma1, Sigma2, self.sigma)

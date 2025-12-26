@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import jax
 import scipy
 from functools import partial
+from tqdm import tqdm
 
 class Distribution:
     def __init__(self, kernel, means, covariances, integrand_name, weights=None):
@@ -162,7 +163,22 @@ class Empirical_Distribution:
             self.integrand = lambda x: jnp.exp(-(x**2).sum(1))
         else:
             raise ValueError('Function not recognized!')
-        
+        # Compute the double KME once during initialization
+        # Because samples are fixed
+        # Also because it is very memory intensive to compute repeatedly
+        block = 1024
+        total, count = 0.0, 0
+        for i in tqdm(range(0, self.n, block)):
+            Xi = samples[i:i+block]
+
+            for j in range(0, self.n, block):
+                Xj = samples[j:j+block]
+                D = kernel.make_distance_matrix(Xi, Xj)  # (bi, bj)
+
+                total += D.sum()
+                count += D.size
+        self.double_kme = total / count
+
     def mean_embedding(self, Y):
         """
         Compute the kernel mean embedding.
@@ -173,7 +189,37 @@ class Empirical_Distribution:
         Returns:
         - pdf: (n,) array of PDF values.
         """
-        kme = self.kernel.make_distance_matrix(Y, self.samples).mean(1)
+        if Y.ndim == 1:
+            Y = Y[None, :]
+            block = 1024
+            total, count = 0.0, 0
+            for i in range(0, self.n, block):
+                Xi = self.samples[i:i+block]
+                D = self.kernel.make_distance_matrix(Y, Xi).sum(1)
+                total += D
+                count += Xi.shape[0]
+            kme = (total / count).squeeze()
+        elif Y.ndim == 2:
+            block = 1024
+            total, count = 0.0, 0
+            for i in range(0, self.n, block):
+                Xi = self.samples[i:i+block]
+                D = self.kernel.make_distance_matrix(Y, Xi).sum(1)
+                total += D
+                count += Xi.shape[0]
+            kme = total / count
+        elif Y.ndim == 3:
+            d = Y.shape[-1]
+            Y2 = Y.reshape((-1, d))
+            block = 1024
+            total, count = 0.0, 0
+            for i in range(0, self.n, block):
+                Xi = self.samples[i:i+block]
+                D = self.kernel.make_distance_matrix(Y2, Xi).sum(1)
+                total += D
+                count += Xi.shape[0]
+            kme2 = total / count
+            kme = kme2.reshape(Y.shape[:-1]) 
         return kme
     
     def mean_mean_embedding(self):
@@ -183,8 +229,8 @@ class Empirical_Distribution:
         Returns:
         - double_kme: scalar, the value of the double integral.
         """
-        double_kme = self.kernel.make_distance_matrix(self.samples, self.samples).mean()
-        return double_kme
+        # double_kme = self.kernel.make_distance_matrix(self.samples, self.samples).mean()
+        return self.double_kme
     
     def sample(self, sample_size, rng_key):
         """

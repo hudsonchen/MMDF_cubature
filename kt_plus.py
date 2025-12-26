@@ -16,6 +16,9 @@ from goodpoints.jax.sliceable_points import SliceablePoints
 import time
 import pickle
 import matplotlib.pyplot as plt
+from mmd_flow.typing import Array
+from mmd_flow.kernels import kme_RBF_Gaussian_func
+
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "cpu")
 
@@ -48,7 +51,7 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"kernel_thinning_new/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"kt_plus/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
     args.save_path += f"__particle_num_{2 ** int(args.m)}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
@@ -58,26 +61,93 @@ def create_dir(args):
     return args
 
 
+# class gaussian_kernel_override(gaussian_kernel):
+#     # Override kernel mean embedding to handle (M,B,D) and (D,) inputs
+#     def mean_embedding(self, X: Array, mu: Array, Sigma: Array) -> Array:
+#         """
+#         The implementation of the kernel mean embedding of the RBF kernel with Gaussian distribution
+#         A fully vectorized implementation.
+
+#         Args:
+#             mu: Gaussian mean, (D, )
+#             Sigma: Gaussian covariance, (D, D)
+#             X: (M, D)
+
+#         Returns:
+#             kernel mean embedding: (M, )
+#         """
+        # kme_RBF_Gaussian_func_ = partial(kme_RBF_Gaussian_func, mu, Sigma, self.sigma)
+        # if X.ndim == 1:
+        #     # Handle inputs of shape (D,)
+        #     return kme_RBF_Gaussian_func_(X)
+        # kme_RBF_Gaussian_vmap_func = jax.vmap(kme_RBF_Gaussian_func_)
+        # if X.ndim == 3:
+        #     # Add another vmap layer to handle (M, B, D) input
+        #     return jax.vmap(kme_RBF_Gaussian_vmap_func)(X)
+        # return kme_RBF_Gaussian_vmap_func(X)
+    
+# We define a new Gaussian kernel here, because the way broadcasting is done in 
+# goodpoints.jax.compress is different than our previous Gaussian kernel.
 @partial(jax.jit, static_argnames=['distribution'])
-def centered_gaussian_kernel(points_x, points_y, l, distribution):
-    # x = points_x.get("X").squeeze() if len(points_x.get("X").shape) >= 2 else points_x.get("X")
-    # x = jnp.atleast_2d(x)
-    # y = points_y.get("X").squeeze() if len(points_y.get("X").shape) >= 2 else points_y.get("X")
-    # y = jnp.atleast_2d(y)
-    x, y = points_x.get("X"), points_y.get("X")
-    k_xy = jnp.exp(-0.5 * jnp.sum((x - y) ** 2) / (l ** 2))
+def centered_gaussian_kernel(points_x, points_y, l, distribution, kme_kme):
+    x, y = points_x.get("p"), points_y.get("p")
+    k_xy = jnp.exp(-0.5 * jnp.sum((x - y) ** 2, axis=-1) / (l ** 2))
     kme_x = distribution.mean_embedding(x)
     kme_y = distribution.mean_embedding(y)
-    kme_kme = distribution.mean_mean_embedding()
     return k_xy - kme_x - kme_y + kme_kme
 
+@partial(jax.jit, static_argnames=['distribution'])
+def uncentered_gaussian_kernel(points_x, points_y, l, distribution, kme_kme):
+    x, y = points_x.get("p"), points_y.get("p")
+    k_xy = jnp.exp(-0.5 * jnp.sum((x - y) ** 2, axis=-1) / (l ** 2))
+    return k_xy
 
-def uncentered_matern_32_kernel(x, y, l):
-    dists = np.sqrt(np.sum((x - y)**2, axis=1))
-    sqrt3_r = np.sqrt(3) * dists / l
-    return (1.0 + sqrt3_r) * np.exp(-sqrt3_r)
+# class GaussianKernel:
+#     def __init__(self, sqd_bandwidth):
+#         '''A Gaussian kernel of the form exp(-.5*||x-y||^2/sqd_bandwidth)
+#         '''
+#         # Initialize exponential scale factor
+#         self.scale = -.5/sqd_bandwidth
 
+#     @partial(jax.jit, static_argnums=(0,))
+#     def __call__(self, points_x, points_y):
+#         x = points_x.get('p')
+#         y = points_y.get('p')
+#         return jnp.exp(((x - y) ** 2).sum(-1) * self.scale)
 
+    # def prepare_input(self, p):
+    #     return SliceablePoints({'p': p})
+    
+# class GaussianKernelMean0:
+    # def __init__(self, distribution):
+    #     '''A Gaussian kernel of the form exp(-.5*||x-y||^2/sigma^2)
+    #     shifted to be mean-zero with respect to the input distribution.
+
+    #     Args:
+    #         distribution: a Distribution object with methods mean_embedding(x), mean_mean_embedding(),
+    #             and attribute kernel (a Gaussian kernel object with attribute sigma)
+    #     '''
+    #     self.distribution = distribution
+    #     # Double expectation of the Gaussian kernel under distribution
+    #     self.mean_mean_embedding = self.distribution.mean_mean_embedding()
+    #     # Initialize exponential scale factor
+    #     self.scale = -.5/distribution.kernel.sigma**2
+
+    # @partial(jax.jit, static_argnums=(0,))
+    # def __call__(self, points_x, points_y):
+    #     x = points_x.get('p')
+    #     y = points_y.get('p')
+    #     # x = x.squeeze() 
+    #     # y = y.squeeze()
+    #     val = (jnp.exp(((x - y) ** 2).sum(-1) * self.scale)
+    #             - self.distribution.mean_embedding(x) 
+    #             - self.distribution.mean_embedding(y) 
+    #             + self.mean_mean_embedding)
+    #     return val
+
+    # def prepare_input(self, p):
+    #     return SliceablePoints({'p': p})
+    
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
     kernel = gaussian_kernel(args.bandwidth)
@@ -105,22 +175,24 @@ def main(args):
 
     d = int(2)
     if args.kernel == 'Gaussian':
-        kernel_fn = partial(centered_gaussian_kernel, l=float(args.bandwidth), distribution=distribution)
-    elif args.kernel == 'Matern_32':
-        kernel_fn = partial(uncentered_matern_32_kernel, l=float(args.bandwidth))
+        # centered kernel
+        kernel_fn = partial(centered_gaussian_kernel, l=float(args.bandwidth), distribution=distribution, 
+                            kme_kme=distribution.mean_mean_embedding())
+        # uncentered kernel
+        # kernel_fn = partial(uncentered_gaussian_kernel, l=float(args.bandwidth), distribution=distribution, 
+                            # kme_kme=distribution.mean_mean_embedding())
     else:
         raise ValueError('Kernel not recognized!')
 
     m = args.m
-    n = int(2**(2*m))
+    g = 2
+    n = int(2**(2*m)) * (2 ** g)
     X = distribution.sample(n, rng_key)
-    X = np.array(X)
-    g = 0
-
+    
     rng = np.random.default_rng(args.seed)
-    points = SliceablePoints({"X": X}) 
+    points = SliceablePoints({"p": X}) 
     coresets = kt_compresspp(kernel_fn, points, w=np.ones(X.shape[0]) / X.shape[0], 
-                             rng_gen=rng, inflate_size=m, g=g)
+                             rng_gen=rng, inflate_size=n, g=g)
     kt_samples = X[coresets, :]
 
     true_value = distribution.integral()

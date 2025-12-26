@@ -33,7 +33,7 @@ def get_config():
     parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--bandwidth', type=float, default=0.1)
     parser.add_argument('--step_num', type=int, default=100, help='Number of KT-swap iterations')
-    parser.add_argument('--particle_num', type=int, default=100)
+    parser.add_argument('--m', type=int, default=4)
     parser.add_argument('--inject_noise_scale', type=float, default=0.0)
     parser.add_argument('--integrand', type=str, default='neg_exp')
     args = parser.parse_args()  
@@ -42,9 +42,9 @@ def get_config():
 def create_dir(args):
     if args.seed is None:
         args.seed = int(time.time())
-    args.save_path += f"kernel_thinning_lester/{args.dataset}_dataset/{args.kernel}_kernel/"
+    args.save_path += f"kt/{args.dataset}_dataset/{args.kernel}_kernel/"
     args.save_path += f"__step_size_{round(args.step_size, 8)}__bandwidth_{args.bandwidth}__step_num_{args.step_num}"
-    args.save_path += f"__particle_num_{args.particle_num}__inject_noise_scale_{args.inject_noise_scale}"
+    args.save_path += f"__particle_num_{2 ** int(args.m)}__inject_noise_scale_{args.inject_noise_scale}"
     args.save_path += f"__seed_{args.seed}"
     os.makedirs(args.save_path, exist_ok=True)
     with open(f'{args.save_path}/configs', 'wb') as handle:
@@ -140,6 +140,7 @@ def main(args):
     # Generate multiple seeds from input seed
     rng_key = jax.random.PRNGKey(args.seed)
     kt_seed = args.seed
+    particle_num = 2 ** int(args.m)
 
     kernel = gaussian_kernel_override(args.bandwidth)
     other_integrand = 'square' if args.integrand != 'square' else 'neg_exp'
@@ -168,10 +169,10 @@ def main(args):
     if empirical:
         # Compute KT-split target input sample size
         N = distribution.samples.shape[0]
-        target_n = min(N, args.particle_num**2)
+        target_n = min(N, particle_num**2)
         # Choose actual KT-split input sample size 
         # n_split = particle_num times the smallest power of 2 >= target_n/particle_num
-        n_split = args.particle_num * (2**int(np.ceil(np.log2(target_n / args.particle_num))))
+        n_split = particle_num * (2**int(np.ceil(np.log2(target_n / particle_num))))
         # Sample indices into distribution.samples
         print(f'Sampling {n_split} indices from {N} data points')
         inds_key, _ = jax.random.split(rng_key)
@@ -209,9 +210,9 @@ def main(args):
             kernel=kernel, samples=distribution.samples, integrand_name=other_integrand)
     else:
         # Find the smallest power of 2 greater than or equal to particle_num
-        nout_pow2 = 2**int(np.ceil(np.log2(args.particle_num)))
+        nout_pow2 = 2**int(np.ceil(np.log2(particle_num)))
         # Thin down from sample size n = particle_num * nout_pow2 * 2^g
-        n_split = args.particle_num * nout_pow2
+        n_split = particle_num * nout_pow2
         g = 2
         n = n_split * (2**g)
         X = distribution.sample(n, rng_key)
@@ -236,7 +237,7 @@ def main(args):
     #
 
     rng_gen = np.random.default_rng(kt_seed) # Random number generator for KT
-    t = log2_ceil(n_split, args.particle_num) # Number of halving rounds
+    t = log2_ceil(n_split, particle_num) # Number of halving rounds
     delta = 0.5 # Failure probability parameter
 
     start_time = time.time()
