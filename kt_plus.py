@@ -59,35 +59,9 @@ def create_dir(args):
     with open(f'{args.save_path}/configs', 'wb') as handle:
         pickle.dump(vars(args), handle, protocol=pickle.HIGHEST_PROTOCOL)
     return args
-
-
-# class gaussian_kernel_override(gaussian_kernel):
-#     # Override kernel mean embedding to handle (M,B,D) and (D,) inputs
-#     def mean_embedding(self, X: Array, mu: Array, Sigma: Array) -> Array:
-#         """
-#         The implementation of the kernel mean embedding of the RBF kernel with Gaussian distribution
-#         A fully vectorized implementation.
-
-#         Args:
-#             mu: Gaussian mean, (D, )
-#             Sigma: Gaussian covariance, (D, D)
-#             X: (M, D)
-
-#         Returns:
-#             kernel mean embedding: (M, )
-#         """
-        # kme_RBF_Gaussian_func_ = partial(kme_RBF_Gaussian_func, mu, Sigma, self.sigma)
-        # if X.ndim == 1:
-        #     # Handle inputs of shape (D,)
-        #     return kme_RBF_Gaussian_func_(X)
-        # kme_RBF_Gaussian_vmap_func = jax.vmap(kme_RBF_Gaussian_func_)
-        # if X.ndim == 3:
-        #     # Add another vmap layer to handle (M, B, D) input
-        #     return jax.vmap(kme_RBF_Gaussian_vmap_func)(X)
-        # return kme_RBF_Gaussian_vmap_func(X)
     
 # We define a new Gaussian kernel here, because the way broadcasting is done in 
-# goodpoints.jax.compress is different than our previous Gaussian kernel.
+# goodpoints.jax.compress is different than our Gaussian kernel.
 @partial(jax.jit, static_argnames=['distribution'])
 def centered_gaussian_kernel(points_x, points_y, l, distribution, kme_kme):
     x, y = points_x.get("p"), points_y.get("p")
@@ -101,52 +75,6 @@ def uncentered_gaussian_kernel(points_x, points_y, l, distribution, kme_kme):
     x, y = points_x.get("p"), points_y.get("p")
     k_xy = jnp.exp(-0.5 * jnp.sum((x - y) ** 2, axis=-1) / (l ** 2))
     return k_xy
-
-# class GaussianKernel:
-#     def __init__(self, sqd_bandwidth):
-#         '''A Gaussian kernel of the form exp(-.5*||x-y||^2/sqd_bandwidth)
-#         '''
-#         # Initialize exponential scale factor
-#         self.scale = -.5/sqd_bandwidth
-
-#     @partial(jax.jit, static_argnums=(0,))
-#     def __call__(self, points_x, points_y):
-#         x = points_x.get('p')
-#         y = points_y.get('p')
-#         return jnp.exp(((x - y) ** 2).sum(-1) * self.scale)
-
-    # def prepare_input(self, p):
-    #     return SliceablePoints({'p': p})
-    
-# class GaussianKernelMean0:
-    # def __init__(self, distribution):
-    #     '''A Gaussian kernel of the form exp(-.5*||x-y||^2/sigma^2)
-    #     shifted to be mean-zero with respect to the input distribution.
-
-    #     Args:
-    #         distribution: a Distribution object with methods mean_embedding(x), mean_mean_embedding(),
-    #             and attribute kernel (a Gaussian kernel object with attribute sigma)
-    #     '''
-    #     self.distribution = distribution
-    #     # Double expectation of the Gaussian kernel under distribution
-    #     self.mean_mean_embedding = self.distribution.mean_mean_embedding()
-    #     # Initialize exponential scale factor
-    #     self.scale = -.5/distribution.kernel.sigma**2
-
-    # @partial(jax.jit, static_argnums=(0,))
-    # def __call__(self, points_x, points_y):
-    #     x = points_x.get('p')
-    #     y = points_y.get('p')
-    #     # x = x.squeeze() 
-    #     # y = y.squeeze()
-    #     val = (jnp.exp(((x - y) ** 2).sum(-1) * self.scale)
-    #             - self.distribution.mean_embedding(x) 
-    #             - self.distribution.mean_embedding(y) 
-    #             + self.mean_mean_embedding)
-    #     return val
-
-    # def prepare_input(self, p):
-    #     return SliceablePoints({'p': p})
     
 def main(args):
     rng_key = jax.random.PRNGKey(args.seed)
